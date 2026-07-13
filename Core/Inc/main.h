@@ -65,6 +65,10 @@ void Error_Handler(void);
 #define TDS_GPIO_Port GPIOB
 #define TEMP_Pin GPIO_PIN_1
 #define TEMP_GPIO_Port GPIOB
+#define MIXING_Pin GPIO_PIN_2
+#define MIXING_GPIO_Port GPIOB
+#define I2C2_SCL_Pin GPIO_PIN_10
+#define I2C2_SCL_GPIO_Port GPIOB
 #define PUPUK_5_Pin GPIO_PIN_12
 #define PUPUK_5_GPIO_Port GPIOB
 #define PUPUK_4_Pin GPIO_PIN_13
@@ -75,10 +79,24 @@ void Error_Handler(void);
 #define PUPUK_2_GPIO_Port GPIOB
 #define FLOWMETER_IN_Pin GPIO_PIN_8
 #define FLOWMETER_IN_GPIO_Port GPIOA
+#define USART1_TX_Pin GPIO_PIN_9
+#define USART1_TX_GPIO_Port GPIOA
+#define USART1_RX_Pin GPIO_PIN_10
+#define USART1_RX_GPIO_Port GPIOA
 #define PUPUK_1_Pin GPIO_PIN_15
 #define PUPUK_1_GPIO_Port GPIOA
 #define FLOWMETER_OUT_Pin GPIO_PIN_4
 #define FLOWMETER_OUT_GPIO_Port GPIOB
+#define VALVE_OUT_Pin GPIO_PIN_5
+#define VALVE_OUT_GPIO_Port GPIOB
+#define I2C1_SCL_Pin GPIO_PIN_6
+#define I2C1_SCL_GPIO_Port GPIOB
+#define I2C1_SDA_Pin GPIO_PIN_7
+#define I2C1_SDA_GPIO_Port GPIOB
+#define VALVE_IN_Pin GPIO_PIN_8
+#define VALVE_IN_GPIO_Port GPIOB
+#define I2C2_SDA_Pin GPIO_PIN_9
+#define I2C2_SDA_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

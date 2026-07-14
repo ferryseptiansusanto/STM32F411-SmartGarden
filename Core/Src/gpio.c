@@ -51,28 +51,34 @@ void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, TEMP_Pin|MIXING_Pin|PUPUK_5_Pin|PUPUK_4_Pin
-                          |PUPUK_3_Pin|PUPUK_2_Pin|FLOWMETER_OUT_Pin|VALVE_OUT_Pin
+                          |PUPUK_3_Pin|PUPUK_2_Pin|FLOWMETER_2_Pin|VALVE_OUT_Pin
                           |VALVE_IN_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(PUPUK_1_GPIO_Port, PUPUK_1_Pin, GPIO_PIN_RESET);
 
+  /*Configure GPIO pins : FLOWMETER_3_Pin FLOWMETER_1_Pin */
+  GPIO_InitStruct.Pin = FLOWMETER_3_Pin|FLOWMETER_1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
   /*Configure GPIO pins : TEMP_Pin MIXING_Pin PUPUK_5_Pin PUPUK_4_Pin
-                           PUPUK_3_Pin PUPUK_2_Pin FLOWMETER_OUT_Pin VALVE_OUT_Pin
+                           PUPUK_3_Pin PUPUK_2_Pin FLOWMETER_2_Pin VALVE_OUT_Pin
                            VALVE_IN_Pin */
   GPIO_InitStruct.Pin = TEMP_Pin|MIXING_Pin|PUPUK_5_Pin|PUPUK_4_Pin
-                          |PUPUK_3_Pin|PUPUK_2_Pin|FLOWMETER_OUT_Pin|VALVE_OUT_Pin
+                          |PUPUK_3_Pin|PUPUK_2_Pin|FLOWMETER_2_Pin|VALVE_OUT_Pin
                           |VALVE_IN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : FLOWMETER_IN_Pin */
-  GPIO_InitStruct.Pin = FLOWMETER_IN_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  /*Configure GPIO pins : WATER_LVL_2_Pin WATER_LVL_1_Pin */
+  GPIO_InitStruct.Pin = WATER_LVL_2_Pin|WATER_LVL_1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(FLOWMETER_IN_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PUPUK_1_Pin */
   GPIO_InitStruct.Pin = PUPUK_1_Pin;

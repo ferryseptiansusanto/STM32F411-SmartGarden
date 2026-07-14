@@ -11,7 +11,10 @@
 #include "mixer_driver.h"
 #include "sensor_driver.h"
 #include "flowmeter_driver.h"
+#include "water_lvl_driver.h"
 #include "delay.h"
+#include "task.h"
+#include "FreeRTOS.h"
 #include <stdio.h>
 
 QueueHandle_t appQueue;
@@ -19,7 +22,7 @@ QueueHandle_t appQueue;
 // --- Handler Penyiraman Rutin ---
 void HandleIrrigationRoutine(void) {
     Valve_Open(VALVE_INPUT);
-    while (!Sensor_LevelMax()) {
+    while (!(isWtrLvl_Full())) {
         vTaskDelay(pdMS_TO_TICKS(100));
     }
     Valve_Close(VALVE_INPUT);
@@ -69,12 +72,12 @@ static void vTaskApp(void *pvParameters) {
                     break;
             }
 
-            // --- Algoritma penyiraman rutin ---
+             --- Algoritma penyiraman rutin ---
             if (/* kondisi jadwal rutin */) {
             	HandleIrrigationRoutine();
             }
 
-            // --- Algoritma pemupukan ---
+             --- Algoritma pemupukan ---
             if (/* kondisi jadwal pupuk */) {
                 HandleFertilizationRoutine();
             }

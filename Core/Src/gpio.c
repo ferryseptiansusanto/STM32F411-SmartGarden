@@ -77,7 +77,7 @@ void MX_GPIO_Init(void)
 
   /*Configure GPIO pins : LVL_TANK_EMPTY_Pin LVL_TANK_FULL_Pin */
   GPIO_InitStruct.Pin = LVL_TANK_EMPTY_Pin|LVL_TANK_FULL_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 

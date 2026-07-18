@@ -14,7 +14,7 @@
 #include "main.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "flowmeter_type.h" // Asumsi file ini tetap sama
+#include "flowmeter/flowmeter_type.h" // Asumsi file ini tetap sama
 
 typedef struct {
     TIM_HandleTypeDef* htim; // Pointer ke Timer, contoh: &htim2

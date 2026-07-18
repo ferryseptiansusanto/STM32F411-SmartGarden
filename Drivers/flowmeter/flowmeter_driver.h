@@ -4,6 +4,9 @@
  *  Created on: 11 Jun 2026
  *      Author: ferry
  */
+/*
+ * flowmeter_driver.h
+ */
 
 #ifndef FLOWMETER_FLOWMETER_DRIVER_H_
 #define FLOWMETER_FLOWMETER_DRIVER_H_
@@ -11,11 +14,11 @@
 #include "main.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "flowmeter_type.h"
+#include "flowmeter_type.h" // Asumsi file ini tetap sama
 
 typedef struct {
-    GPIO_TypeDef* gpio_port;
-    uint16_t gpio_pin;
+    TIM_HandleTypeDef* htim; // Pointer ke Timer, contoh: &htim2
+    uint32_t tim_channel;    // Channel Timer, contoh: TIM_CHANNEL_1
 
     volatile uint32_t total_pulse;
     volatile uint32_t pulse;
@@ -29,9 +32,16 @@ typedef struct {
     TickType_t time_before;
 } FlowSensor_t;
 
-void FlowSensor_Init(FlowSensor_t *sensor, uint16_t type, GPIO_TypeDef* port, uint16_t pin);
-void FlowSensor_Count(FlowSensor_t *sensor);
-void FlowSensor_ProcessEXTI(uint16_t GPIO_Pin);
+// Menggunakan TIM_HandleTypeDef dan Channel, bukan lagi GPIO
+void FlowSensor_Init(FlowSensor_t *sensor, uint16_t type, TIM_HandleTypeDef* htim, uint32_t channel);
+
+// Fungsi baru untuk memulai dan menghentikan interupsi timer (Input Capture)
+void FlowSensor_Start(FlowSensor_t *sensor);
+void FlowSensor_Stop(FlowSensor_t *sensor);
+
+// Fungsi ini akan menggantikan FlowSensor_ProcessEXTI
+void FlowSensor_ProcessIC(TIM_HandleTypeDef *htim);
+
 void FlowSensor_Read(FlowSensor_t *sensor, long calibration);
 void FlowSensor_SetType(FlowSensor_t *sensor, uint16_t type);
 

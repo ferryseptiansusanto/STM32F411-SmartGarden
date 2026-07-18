@@ -4,15 +4,19 @@
  *  Created on: 11 Jun 2026
  *      Author: ferry
  */
+
 #include "flowmeter_driver.h"
 #include <stddef.h>
-// Pointer internal untuk mencatat sensor aktif (Jembatan EXTI ke Driver)
-static FlowSensor_t *p_active_sensor = NULL;
 
-void FlowSensor_Init(FlowSensor_t *sensor, uint16_t type, GPIO_TypeDef* port, uint16_t pin) {
+// Maksimal sensor yang kita gunakan: FM_INLET, FM_OUTLET, FM_FERTILIZER
+#define MAX_FLOW_SENSORS 3
+static FlowSensor_t* flow_sensors[MAX_FLOW_SENSORS] = {NULL};
+
+void FlowSensor_Init(FlowSensor_t *sensor, uint16_t type, TIM_HandleTypeDef* htim, uint32_t channel) {
     if (sensor == NULL) return;
-    sensor->gpio_port = port;
-    sensor->gpio_pin = pin;
+
+    sensor->htim = htim;
+    sensor->tim_channel = channel;
     sensor->pulse1liter = (float)type;
 
     sensor->pulse = 0;
@@ -22,6 +26,28 @@ void FlowSensor_Init(FlowSensor_t *sensor, uint16_t type, GPIO_TypeDef* port, ui
     sensor->flowrate_hour = 0.0f;
     sensor->volume = 0.0f;
     sensor->time_before = xTaskGetTickCount();
+
+    // Daftarkan sensor ke memori global agar bisa diproses oleh fungsi Interupsi
+    for (int i = 0; i < MAX_FLOW_SENSORS; i++) {
+        if (flow_sensors[i] == NULL || flow_sensors[i] == sensor) {
+            flow_sensors[i] = sensor;
+            break;
+        }
+    }
+}
+
+void FlowSensor_Start(FlowSensor_t *sensor) {
+    if (sensor != NULL && sensor->htim != NULL) {
+        // Mengaktifkan Input Capture Interrupt
+        HAL_TIM_IC_Start_IT(sensor->htim, sensor->tim_channel);
+    }
+}
+
+void FlowSensor_Stop(FlowSensor_t *sensor) {
+    if (sensor != NULL && sensor->htim != NULL) {
+        // Mematikan Input Capture Interrupt jika tidak digunakan
+        HAL_TIM_IC_Stop_IT(sensor->htim, sensor->tim_channel);
+    }
 }
 
 void FlowSensor_SetType(FlowSensor_t *sensor, uint16_t type) {
@@ -29,19 +55,36 @@ void FlowSensor_SetType(FlowSensor_t *sensor, uint16_t type) {
     sensor->pulse1liter = (float)type;
 }
 
-// Keep this lightweight since it runs inside HAL_GPIO_EXTI_Callback ISR
-void FlowSensor_Count(FlowSensor_t *sensor) {
+// Fungsi Internal untuk menambah pulsa (Berjalan di dalam ISR)
+static inline void FlowSensor_Count(FlowSensor_t *sensor) {
     if (sensor != NULL) {
         sensor->pulse++;
     }
 }
 
-void FlowSensor_ProcessEXTI(uint16_t GPIO_Pin) {
-    if (p_active_sensor != NULL && GPIO_Pin == p_active_sensor->gpio_pin) {
-        FlowSensor_Count(p_active_sensor);
+// Jembatan Interupsi Timer (Input Capture)
+void FlowSensor_ProcessIC(TIM_HandleTypeDef *htim) {
+    for (int i = 0; i < MAX_FLOW_SENSORS; i++) {
+        if (flow_sensors[i] != NULL && flow_sensors[i]->htim->Instance == htim->Instance) {
+
+            // Konversi TIM_CHANNEL_x ke konvensi HAL_TIM_ACTIVE_CHANNEL_x
+            uint32_t expected_hal_channel = HAL_TIM_ACTIVE_CHANNEL_CLEARED;
+            switch(flow_sensors[i]->tim_channel) {
+                case TIM_CHANNEL_1: expected_hal_channel = HAL_TIM_ACTIVE_CHANNEL_1; break;
+                case TIM_CHANNEL_2: expected_hal_channel = HAL_TIM_ACTIVE_CHANNEL_2; break;
+                case TIM_CHANNEL_3: expected_hal_channel = HAL_TIM_ACTIVE_CHANNEL_3; break;
+                case TIM_CHANNEL_4: expected_hal_channel = HAL_TIM_ACTIVE_CHANNEL_4; break;
+            }
+
+            // Jika interupsi berasal dari channel milik sensor ini, tambah pulsanya
+            if (htim->Channel == expected_hal_channel) {
+                FlowSensor_Count(flow_sensors[i]);
+            }
+        }
     }
 }
 
+// Fungsi pembacaan volume di bawah ini tidak ada perubahan logika dari versi sebelumnya.
 void FlowSensor_Read(FlowSensor_t *sensor, long calibration) {
     if (sensor == NULL) return;
 
@@ -52,10 +95,9 @@ void FlowSensor_Read(FlowSensor_t *sensor, long calibration) {
 
     float elapsed_seconds = ((float)elapsed_ticks * portTICK_PERIOD_MS) / 1000.0f;
 
-    // Use task critical section here because this is called inside a Task, not ISR
     taskENTER_CRITICAL();
     uint32_t local_pulse = sensor->pulse;
-    sensor->pulse = 0;
+    sensor->pulse = 0; // reset local pulse
     taskEXIT_CRITICAL();
 
     float total_pulses_per_liter = sensor->pulse1liter + (float)calibration;

@@ -63,16 +63,25 @@ DS3231_Date DS3231_GetDate(I2C_RTCDevice *dev) {
 
 DS3231_DateTime DS3231_GetDateTime(I2C_RTCDevice *dev) {
     DS3231_DateTime dt;
+    uint8_t buf[7];
 
-    if (!DS3231_TestConnection(dev)) {
+    // Lakukan Burst Read 7 byte sekaligus dari register SECONDS (0x00) hingga YEAR (0x06)
+    // Ini menghilangkan Midnight Rollover Bug dan menghemat waktu transaksi I2C.
+    if (I2C_MemRead(dev->ctx, dev->address, dev->mode, DS3231_REG_SECONDS, dev->sizereg, buf, 7, 100) == I2C_OK) {
+        dt.time.seconds   = bcd2dec(buf[0]);
+        dt.time.minutes   = bcd2dec(buf[1]);
+        dt.time.hours     = bcd2dec(buf[2] & 0x3F); // Masking 12/24hr
+        dt.date.dayOfWeek = bcd2dec(buf[3]);
+        dt.date.day       = bcd2dec(buf[4]);
+        dt.date.month     = bcd2dec(buf[5] & 0x1F); // Masking Century bit
+        dt.date.year      = 2000 + bcd2dec(buf[6]);
+    } else {
+        // Fallback jika RTC terputus atau rusak
         dt.time.hours = 12; dt.time.minutes = 0; dt.time.seconds = 0;
         dt.date.year = 2026; dt.date.month = 1; dt.date.day = 1; dt.date.dayOfWeek = 1;
-        printf("LoggerTask: DS3231 not connected, using dummy time\r\n");
-        return dt;
+        printf("LoggerTask: DS3231 read failed, using dummy time\r\n");
     }
 
-    dt.time = DS3231_GetTime(dev);
-    dt.date = DS3231_GetDate(dev);
     return dt;
 }
 

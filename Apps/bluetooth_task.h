@@ -5,6 +5,7 @@
  * Author: ferry
  */
 
+
 #ifndef BLUETOOTH_TASK_H_
 #define BLUETOOTH_TASK_H_
 
@@ -12,6 +13,7 @@
 #include "task.h"
 #include "queue.h"
 #include "uart_wrapper.h"
+#include "usart_protocol.h" // Tambahkan ini agar TaskRx mengenali tipe USART_Message
 
 // Deklarasi Queue agar bisa diakses extern oleh main.c atau command_task.c
 extern QueueHandle_t btQueueTx;

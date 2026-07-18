@@ -37,7 +37,7 @@ void Config_LoadDefault(ConfigData_t *cfg) {
     cfg->version = 1;
     cfg->settings.mixing_duration_ms = DEFAULT_MIXING_DURATION_MS;
     cfg->settings.valve_output_duration_ms = DEFAULT_VALVE_OUTPUT_DURATION_MS;
-    cfg->settings.flow_calibration_offset = DEFAULT_FLOW_CALIBRATION_OFFSET;
+//    cfg->settings.flow_calibration_offset = DEFAULT_FLOW_CALIBRATION_OFFSET;
 }
 
 // Coba baca & validasi config dari EEPROM. return true kalau valid.

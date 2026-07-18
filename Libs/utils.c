@@ -10,7 +10,7 @@
 #include "task.h"
 #include "utils.h"
 #include <math.h>
-extern UART_HandleTypeDef huart2;
+extern UART_HandleTypeDef huart1;
 
 uint8_t bcd2dec(uint8_t val) {
     return ((val >> 4) * 10) + (val & 0x0F);
@@ -71,7 +71,7 @@ int _write(int file, char *ptr, int len)
     }
 
     //Kirim via UART
-    HAL_UART_Transmit(&huart2, (uint8_t*)ptr, len, 500);
+    HAL_UART_Transmit(&huart1, (uint8_t*)ptr, len, 500);
     return len;
 }
 

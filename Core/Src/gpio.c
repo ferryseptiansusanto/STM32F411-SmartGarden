@@ -50,42 +50,36 @@ void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, TEMP_Pin|MIXING_Pin|PUPUK_5_Pin|PUPUK_4_Pin
-                          |PUPUK_3_Pin|PUPUK_2_Pin|FLOWMETER_2_Pin|VALVE_OUT_Pin
-                          |VALVE_IN_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, SPI1_CS_Pin|VALVE_FERT1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(PUPUK_1_GPIO_Port, PUPUK_1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, TEMP_Pin|MIXER_Pin|PUMP_OUT_Pin|VALVE_FERT5_Pin
+                          |VALVE_FERT4_Pin|VALVE_FERT3_Pin|VALVE_FERT2_Pin|VALVE_TANK_IN_Pin
+                          |VALVE_TANK_OUT_Pin|VALVE_WATER_IN_Pin|PUMP_FERT_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : FLOWMETER_3_Pin FLOWMETER_1_Pin */
-  GPIO_InitStruct.Pin = FLOWMETER_3_Pin|FLOWMETER_1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  /*Configure GPIO pins : SPI1_CS_Pin VALVE_FERT1_Pin */
+  GPIO_InitStruct.Pin = SPI1_CS_Pin|VALVE_FERT1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : TEMP_Pin MIXING_Pin PUPUK_5_Pin PUPUK_4_Pin
-                           PUPUK_3_Pin PUPUK_2_Pin FLOWMETER_2_Pin VALVE_OUT_Pin
-                           VALVE_IN_Pin */
-  GPIO_InitStruct.Pin = TEMP_Pin|MIXING_Pin|PUPUK_5_Pin|PUPUK_4_Pin
-                          |PUPUK_3_Pin|PUPUK_2_Pin|FLOWMETER_2_Pin|VALVE_OUT_Pin
-                          |VALVE_IN_Pin;
+  /*Configure GPIO pins : TEMP_Pin MIXER_Pin PUMP_OUT_Pin VALVE_FERT5_Pin
+                           VALVE_FERT4_Pin VALVE_FERT3_Pin VALVE_FERT2_Pin VALVE_TANK_IN_Pin
+                           VALVE_TANK_OUT_Pin VALVE_WATER_IN_Pin PUMP_FERT_Pin */
+  GPIO_InitStruct.Pin = TEMP_Pin|MIXER_Pin|PUMP_OUT_Pin|VALVE_FERT5_Pin
+                          |VALVE_FERT4_Pin|VALVE_FERT3_Pin|VALVE_FERT2_Pin|VALVE_TANK_IN_Pin
+                          |VALVE_TANK_OUT_Pin|VALVE_WATER_IN_Pin|PUMP_FERT_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : WATER_LVL_2_Pin WATER_LVL_1_Pin */
-  GPIO_InitStruct.Pin = WATER_LVL_2_Pin|WATER_LVL_1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  /*Configure GPIO pins : LVL_TANK_EMPTY_Pin LVL_TANK_FULL_Pin */
+  GPIO_InitStruct.Pin = LVL_TANK_EMPTY_Pin|LVL_TANK_FULL_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PUPUK_1_Pin */
-  GPIO_InitStruct.Pin = PUPUK_1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(PUPUK_1_GPIO_Port, &GPIO_InitStruct);
 
 }
 

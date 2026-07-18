@@ -45,8 +45,8 @@ void I2C_Init(I2C_Context *ctx);
 I2C_Status I2C_Transmit(I2C_Context *ctx, uint16_t address, I2C_Mode mode, uint8_t *data, uint16_t size, uint32_t timeout);
 I2C_Status I2C_Receive(I2C_Context *ctx, uint16_t address, I2C_Mode mode, uint8_t *data, uint16_t size, uint32_t timeout);
 I2C_Status I2C_TransmitReceive(I2C_Context *ctx, uint16_t address, I2C_Mode mode, uint8_t *txData, uint16_t txSize, uint32_t timeouttx, uint8_t *rxData, uint16_t rxSize, uint32_t timeoutrx);
-I2C_Status I2C_MemRead(I2C_Context *ctx, uint16_t address, I2C_Mode mode, uint8_t reg, uint32_t regsize, uint8_t *data, uint16_t size, uint32_t timeout);
-I2C_Status I2C_MemWrite(I2C_Context *ctx, uint16_t address, I2C_Mode mode, uint8_t reg, uint32_t regsize, uint8_t *data, uint16_t size, uint32_t timeout);
+I2C_Status I2C_MemRead(I2C_Context *ctx, uint16_t address, I2C_Mode mode, uint16_t reg, uint32_t regsize, uint8_t *data, uint16_t size, uint32_t timeout);
+I2C_Status I2C_MemWrite(I2C_Context *ctx, uint16_t address, I2C_Mode mode, uint16_t reg, uint32_t regsize, uint8_t *data, uint16_t size, uint32_t timeout);
 void I2C_ScanBus(I2C_HandleTypeDef *hi2c);
 I2C_Status I2C_Recovery(I2C_HandleTypeDef *hi2c);
 

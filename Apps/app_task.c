@@ -28,30 +28,30 @@ void HandleIrrigationRoutine(void) {
     Valve_Close(VALVE_INPUT);
 
     Valve_Open(VALVE_OUTPUT);
-    vTaskDelay(pdMS_TO_TICKS(CONFIG_VALVE_OUTPUT_DURATION_MS));
+//    vTaskDelay(pdMS_TO_TICKS(CONFIG_VALVE_OUTPUT_DURATION_MS));
     Valve_Close(VALVE_OUTPUT);
 }
 
 // --- Handler Pemupukan ---
 void HandleFertilizationRoutine(void) {
     Valve_Open(VALVE_PUPUK_1);
-    while (FlowSensor_GetVolume(&flowSensor) < CONFIG_TARGET_VOLUME_A) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
+//    while (FlowSensor_GetVolume(&flowSensor) < CONFIG_TARGET_VOLUME_A) {
+//        vTaskDelay(pdMS_TO_TICKS(100));
+//    }
     Valve_Close(VALVE_PUPUK_1);
 
     Valve_Open(VALVE_PUPUK_2);
-    while (FlowSensor_GetVolume(&flowSensor) < CONFIG_TARGET_VOLUME_B) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
+//    while (FlowSensor_GetVolume(&flowSensor) < CONFIG_TARGET_VOLUME_B) {
+//        vTaskDelay(pdMS_TO_TICKS(100));
+//    }
     Valve_Close(VALVE_PUPUK_2);
 
     Mixer_On();
-    vTaskDelay(pdMS_TO_TICKS(CONFIG_MIXING_DURATION_MS));
+//    vTaskDelay(pdMS_TO_TICKS(CONFIG_MIXING_DURATION_MS));
     Mixer_Off();
 
     Valve_Open(VALVE_OUTPUT);
-    vTaskDelay(pdMS_TO_TICKS(CONFIG_VALVE_OUTPUT_DURATION_MS));
+//    vTaskDelay(pdMS_TO_TICKS(CONFIG_VALVE_OUTPUT_DURATION_MS));
     Valve_Close(VALVE_OUTPUT);
 }
 
@@ -72,15 +72,15 @@ static void vTaskApp(void *pvParameters) {
                     break;
             }
 
-             --- Algoritma penyiraman rutin ---
-            if (/* kondisi jadwal rutin */) {
-            	HandleIrrigationRoutine();
-            }
-
-             --- Algoritma pemupukan ---
-            if (/* kondisi jadwal pupuk */) {
-                HandleFertilizationRoutine();
-            }
+             //--- Algoritma penyiraman rutin ---
+//            if (/* kondisi jadwal rutin */) {
+//            	HandleIrrigationRoutine();
+//            }
+//
+//             --- Algoritma pemupukan ---
+//            if (/* kondisi jadwal pupuk */) {
+//                HandleFertilizationRoutine();
+//            }
         }
     }
 }

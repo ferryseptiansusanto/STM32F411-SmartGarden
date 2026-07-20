@@ -19,7 +19,7 @@ void vFlowmeterTask(void *pvParameters) {
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
         // Calculate flow based on pulses accumulated over the last 1 second
-        FlowSensor_Read(sensor_ctx, 0);
+        FlowSensor_Read(sensor_ctx);
 
         float l_per_menit = FlowSensor_GetFlowRate_M(sensor_ctx);
         float total_liter  = FlowSensor_GetVolume(sensor_ctx);

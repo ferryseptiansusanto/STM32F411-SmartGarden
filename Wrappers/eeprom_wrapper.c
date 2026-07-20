@@ -20,9 +20,9 @@
 
 I2C_EEPROMDevice EEPROM_Ctx;
 
-void EEPROM_Init(I2C_EEPROMDevice *dev, I2C_Context *ctx) {
+void EEPROM_Init(uint16_t dev_addr, I2C_EEPROMDevice *dev, I2C_Context *ctx) {
     dev->ctx = ctx;
-    dev->address = EEPROM_ADDR;
+    dev->address = dev_addr<<1;
     dev->sizereg = I2C_MEMADD_SIZE_16BIT;   // beda dengan DS3231 (8-bit)
     dev->mode = I2C_MODE_IT;
 }

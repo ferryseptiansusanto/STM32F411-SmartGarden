@@ -35,7 +35,7 @@ void FlowSensor_Init(FlowSensor_t *sensor, uint16_t type, TIM_HandleTypeDef* hti
 void FlowSensor_Start(FlowSensor_t *sensor);
 void FlowSensor_Stop(FlowSensor_t *sensor);
 void FlowSensor_ProcessIC(TIM_HandleTypeDef *htim); // ISR Handler
-void FlowSensor_Read(FlowSensor_t *sensor, long calibration);
+void FlowSensor_Read(FlowSensor_t *sensor);
 void FlowSensor_SetType(FlowSensor_t *sensor, uint16_t type);
 
 uint32_t FlowSensor_GetPulse(FlowSensor_t *sensor);

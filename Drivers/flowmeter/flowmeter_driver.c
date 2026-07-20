@@ -1,29 +1,23 @@
 /*
  * flowmeter_driver.c
  *
- *  Created on: 11 Jun 2026
- *      Author: ferry
+ * Created on: 11 Jun 2026
+ * Author: ferry
+ * Refactored: Integrasi otomatis nilai kalibrasi dari sys_calib
  */
 
-
-
 #include "flowmeter/flowmeter_driver.h"
+#include "config_data.h" // Jembatan ke kalibrasi global
 #include <stddef.h>
+#include "FreeRTOS.h"
+#include "task.h"
 
-// Maksimal channel per Timer STM32 adalah 4
 #define MAX_TIMER_CHANNELS 4
 
-// Direct Mapping Pointer untuk eksekusi O(1) di ISR.
-// Asumsi: Semua sensor flow menggunakan channel dari Timer yang sama (misal TIM2).
 static FlowSensor_t* channel_map[MAX_TIMER_CHANNELS] = {NULL};
 
-// Lookup table untuk mengubah nilai bitmask HAL_TIM_ACTIVE_CHANNEL_x menjadi index 0-3
-// HAL_TIM_ACTIVE_CHANNEL_1 = 1 (0x01) -> Index 0
-// HAL_TIM_ACTIVE_CHANNEL_2 = 2 (0x02) -> Index 1
-// HAL_TIM_ACTIVE_CHANNEL_3 = 4 (0x04) -> Index 2
-// HAL_TIM_ACTIVE_CHANNEL_4 = 8 (0x08) -> Index 3
 static const uint8_t active_ch_to_index[9] = {
-    0, 0, 1, 0, 2, 0, 0, 0, 3  // Indexing aman tanpa fungsi kompleks
+    0, 0, 1, 0, 2, 0, 0, 0, 3
 };
 
 void FlowSensor_Init(FlowSensor_t *sensor, uint16_t type, TIM_HandleTypeDef* htim, uint32_t channel) {
@@ -31,6 +25,8 @@ void FlowSensor_Init(FlowSensor_t *sensor, uint16_t type, TIM_HandleTypeDef* hti
 
     sensor->htim = htim;
     sensor->tim_channel = channel;
+
+    // type menjadi default / fallback saja
     sensor->pulse1liter = (float)type;
 
     sensor->pulse = 0;
@@ -41,8 +37,6 @@ void FlowSensor_Init(FlowSensor_t *sensor, uint16_t type, TIM_HandleTypeDef* hti
     sensor->volume = 0.0f;
     sensor->time_before = xTaskGetTickCount();
 
-    // 1. Pre-calculate HAL Active Channel (Agar tidak dilakukan di dalam ISR)
-    // 2. Petakan sensor ke array channel_map (Direct Mapping)
     uint8_t map_index = 0;
     switch(channel) {
         case TIM_CHANNEL_1:
@@ -59,10 +53,9 @@ void FlowSensor_Init(FlowSensor_t *sensor, uint16_t type, TIM_HandleTypeDef* hti
             map_index = 3; break;
         default:
             sensor->hal_active_channel = HAL_TIM_ACTIVE_CHANNEL_CLEARED;
-            return; // Channel tidak valid
+            return;
     }
 
-    // Daftarkan pointer sensor ke mapping global agar dipanggil oleh ISR
     channel_map[map_index] = sensor;
 }
 
@@ -83,47 +76,48 @@ void FlowSensor_SetType(FlowSensor_t *sensor, uint16_t type) {
     sensor->pulse1liter = (float)type;
 }
 
-// -------------------------------------------------------------------------
-// ISR Handler - SANGAT CEPAT, TANPA LOOPING, TANPA SWITCH-CASE
-// -------------------------------------------------------------------------
 void FlowSensor_ProcessIC(TIM_HandleTypeDef *htim) {
     uint32_t active_ch = htim->Channel;
 
-    // Pastikan channel valid (bukan CLEARED dan max nilai mask adalah 8)
     if (active_ch == HAL_TIM_ACTIVE_CHANNEL_CLEARED || active_ch > 8) {
         return;
     }
 
-    // O(1) Lookup: Ubah flag bitmask channel ke index 0-3
     uint8_t idx = active_ch_to_index[active_ch];
 
-    // Cek apakah ada sensor yang terdaftar di index ini dan menggunakan timer yang sama
     if (channel_map[idx] != NULL && channel_map[idx]->htim->Instance == htim->Instance) {
         channel_map[idx]->pulse++;
     }
 }
 
 // -------------------------------------------------------------------------
-// Fungsi Pembacaan Volume - Dioptimasi dengan CRITICAL SECTION yang presisi
+// Data ditarik dari sys_calib.
 // -------------------------------------------------------------------------
-void FlowSensor_Read(FlowSensor_t *sensor, long calibration) {
+void FlowSensor_Read(FlowSensor_t *sensor) {
     if (sensor == NULL) return;
 
     TickType_t current_time = xTaskGetTickCount();
     TickType_t elapsed_ticks = current_time - sensor->time_before;
 
-    // Cegah pembagian dengan nol jika fungsi dipanggil terlalu cepat
     if (elapsed_ticks == 0) return;
 
     float elapsed_seconds = ((float)elapsed_ticks * portTICK_PERIOD_MS) / 1000.0f;
 
-    // Amankan pengambilan pulsa lokal dari gangguan ISR
     taskENTER_CRITICAL();
     uint32_t local_pulse = sensor->pulse;
-    sensor->pulse = 0; // reset local pulse
+    sensor->pulse = 0;
     taskEXIT_CRITICAL();
 
-    float total_pulses_per_liter = sensor->pulse1liter + (float)calibration;
+    // Mapping Channel ke Variabel sys_calib yang Sesuai
+    float total_pulses_per_liter = sensor->pulse1liter; // Fallback ke init 'type'
+
+    if (sensor->tim_channel == TIM_CHANNEL_1) {
+        total_pulses_per_liter = (float)sys_calib.fm_inlet_pulse_per_liter;
+    } else if (sensor->tim_channel == TIM_CHANNEL_2) {
+        total_pulses_per_liter = (float)sys_calib.fm_outlet_pulse_per_liter;
+    } else if (sensor->tim_channel == TIM_CHANNEL_3) {
+        total_pulses_per_liter = (float)sys_calib.fm_fert_pulse_per_liter;
+    }
 
     if (total_pulses_per_liter > 0.0f) {
         float current_volume_liters = (float)local_pulse / total_pulses_per_liter;
@@ -172,4 +166,3 @@ void FlowSensor_ResetVolume(FlowSensor_t *sensor) {
         sensor->volume = 0.0f;
     }
 }
-

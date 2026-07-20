@@ -29,6 +29,13 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "flowmeter/flowmeter_driver.h"
+#include "ds3231_wrapper.h"
+#include "eeprom_wrapper.h"
+#include "config_manager.h"
+#include "water_quality/water_quality_driver.h"
+
+#include "app_task.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -49,7 +56,8 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+I2C_RTCDevice DS3231_Ctx;
+I2C_EEPROMDevice Eeprom_Ctx;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -99,6 +107,16 @@ int main(void)
   MX_SPI1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+
+  /* Inisialisasi Wrapper Hardware */
+  I2C_Init(&i2c1_ctx);
+
+  //Init DS3231
+  DS3231_Init(&DS3231_Ctx, &i2c1_ctx);
+  EEPROM_Init(0x57, &Eeprom_Ctx, &i2c1_ctx);
+
+  /* Validasi dan Load Konfigurasi (Manajer) */
+  ConfigManager_Init(&Eeprom_Ctx);
 
   // 1. Buat Task Utama Aplikasi (otomatis menginisialisasi Queue internal)
   APP_TaskCreate(tskIDLE_PRIORITY + 2);

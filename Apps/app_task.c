@@ -211,9 +211,9 @@ static void vTaskApp(void *pvParameters) {
         }
 
         // --- Sinkronisasi Nilai Sensor Berkelanjutan (Non-Blocking) ---
-        FlowSensor_Read(&sensor_inlet, 0);
-        FlowSensor_Read(&sensor_outlet, 0);
-        FlowSensor_Read(&sensor_fert, 0);
+        FlowSensor_Read(&sensor_inlet);
+        FlowSensor_Read(&sensor_outlet);
+        FlowSensor_Read(&sensor_fert);
         WaterQuality_ProcessAnalog();
 
         // --- Siklus FSM Utama yang Dievaluasi Tiap 50ms ---

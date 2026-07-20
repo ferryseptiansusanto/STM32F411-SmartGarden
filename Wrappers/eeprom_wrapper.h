@@ -31,7 +31,7 @@ typedef struct {
 extern I2C_EEPROMDevice EEPROM_Ctx;
 
 // API
-void EEPROM_Init(I2C_EEPROMDevice *dev, I2C_Context *ctx);
+void EEPROM_Init(uint16_t dev_addr, I2C_EEPROMDevice *dev, I2C_Context *ctx);
 bool EEPROM_TestConnection(I2C_EEPROMDevice *dev);
 
 // mem_addr: alamat byte di dalam EEPROM (0 .. EEPROM_SIZE_BYTES-1)

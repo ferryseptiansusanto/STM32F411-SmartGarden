@@ -12,10 +12,9 @@
 
 // Definisi Context untuk I2C1 dan I2C2
 I2C_Context i2c1_ctx = { &hi2c1, NULL, NULL, NULL };
-I2C_Context i2c2_ctx = { &hi2c2, NULL, NULL, NULL };
 
 // Registri dinamis seperti pada UART Wrapper
-static I2C_Context* i2c_registry[] = { &i2c1_ctx, &i2c2_ctx };
+static I2C_Context* i2c_registry[] = { &i2c1_ctx };
 #define I2C_REGISTRY_COUNT (sizeof(i2c_registry) / sizeof(i2c_registry[0]))
 
 

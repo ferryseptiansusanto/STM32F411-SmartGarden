@@ -1,31 +1,29 @@
 /*
  * config_manager.h
  *
+ * @file    config_manager.h
+ * @brief   API untuk inisialisasi, penyimpanan, dan pemulihan konfigurasi sistem.
+ *
  *  Created on: 14 Jul 2026
  *      Author: ferry
  */
 
-#ifndef CONFIG_CONFIG_MANAGER_H_
-#define CONFIG_CONFIG_MANAGER_H_
+#ifndef APPS_CONFIG_MANAGER_H_
+#define APPS_CONFIG_MANAGER_H_
 
-#include "config_data.h"
 #include <stdbool.h>
+#include "eeprom_wrapper.h"
 
-// Alamat mulai penyimpanan config di EEPROM (byte 0)
-// Sisakan area ini eksklusif untuk ConfigData_t, jangan dipakai keperluan lain
-#define CONFIG_EEPROM_ADDR   0x0000
+/* Alamat memori awal di EEPROM untuk data kalibrasi */
+#define EEPROM_CALIB_START_ADDR  0x0000
 
-// Instance global config aktif — diakses seluruh modul aplikasi setelah Config_Init()
-extern ConfigData_t g_config;
+/** @brief Inisialisasi konfigurasi saat boot */
+void ConfigManager_Init(I2C_EEPROMDevice *dev);
 
-// Dipanggil sekali di awal main(), sebelum task lain dibuat.
-// Otomatis load dari EEPROM, atau isi default + simpan kalau EEPROM belum pernah diinisialisasi/korup.
-void Config_Init(void);
+/** @brief Menyimpan konfigurasi dari RAM ke EEPROM (beserta update CRC) */
+bool ConfigManager_Save(void);
 
-// Simpan ulang g_config ke EEPROM (panggil setelah user mengubah setting/jadwal)
-bool Config_Save(void);
+/** @brief Mereset data di RAM dengan factory default dan menyimpannya ke EEPROM */
+void ConfigManager_ResetToDefault(void);
 
-// Reset g_config ke nilai pabrik dan simpan ke EEPROM (mis. untuk fitur "factory reset")
-void Config_ResetToDefault(void);
-
-#endif /* CONFIG_MANAGER_H_ */
+#endif /* APPS_CONFIG_MANAGER_H_ */

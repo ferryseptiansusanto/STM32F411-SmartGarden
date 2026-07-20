@@ -41,11 +41,6 @@ void WaterQuality_Init(ADC_HandleTypeDef *hadc);
 void WaterQuality_ProcessAnalog(void);
 WaterQualityData_t WaterQuality_GetData(void);
 
-// API Kalibrasi & EEPROM
-void WaterQuality_LoadCalibration(void);
-bool WaterQuality_SaveCalibration(void);
-void WaterQuality_SetCalibration(float ph_slope, float ph_offset, float tds_k);
-WaterQuality_CalibData_t WaterQuality_GetCalibration(void);
 
 // Jembatan Callback DMA
 void WaterQuality_ADC_Callback(ADC_HandleTypeDef *hadc);

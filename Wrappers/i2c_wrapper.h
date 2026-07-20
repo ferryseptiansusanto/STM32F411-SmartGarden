@@ -38,7 +38,6 @@ typedef struct {
 } I2C_Context;
 
 extern I2C_Context i2c1_ctx;
-extern I2C_Context i2c2_ctx;
 
 // --- API Wrapper ---
 void I2C_Init(I2C_Context *ctx);

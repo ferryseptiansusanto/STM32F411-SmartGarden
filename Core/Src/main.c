@@ -100,6 +100,10 @@ int main(void)
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 
+  // 1. Buat Task Utama Aplikasi (otomatis menginisialisasi Queue internal)
+  APP_TaskCreate(tskIDLE_PRIORITY + 2);
+  vTaskStartScheduler();
+
   /* USER CODE END 2 */
 
   /* Infinite loop */

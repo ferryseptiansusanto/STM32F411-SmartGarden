@@ -4,9 +4,6 @@
  *  Created on: 11 Jun 2026
  *      Author: ferry
  */
-/*
- * flowmeter_driver.h
- */
 
 #ifndef FLOWMETER_FLOWMETER_DRIVER_H_
 #define FLOWMETER_FLOWMETER_DRIVER_H_
@@ -14,11 +11,12 @@
 #include "main.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "flowmeter/flowmeter_type.h" // Asumsi file ini tetap sama
+#include "flowmeter/flowmeter_type.h"
 
 typedef struct {
-    TIM_HandleTypeDef* htim; // Pointer ke Timer, contoh: &htim2
-    uint32_t tim_channel;    // Channel Timer, contoh: TIM_CHANNEL_1
+    TIM_HandleTypeDef* htim;     // Pointer ke Timer, contoh: &htim2
+    uint32_t tim_channel;        // Channel Timer (CubeMX), contoh: TIM_CHANNEL_1
+    uint32_t hal_active_channel; // Cache untuk HAL Active Channel (Optimasi ISR)
 
     volatile uint32_t total_pulse;
     volatile uint32_t pulse;
@@ -32,16 +30,11 @@ typedef struct {
     TickType_t time_before;
 } FlowSensor_t;
 
-// Menggunakan TIM_HandleTypeDef dan Channel, bukan lagi GPIO
+// Prototipe Fungsi
 void FlowSensor_Init(FlowSensor_t *sensor, uint16_t type, TIM_HandleTypeDef* htim, uint32_t channel);
-
-// Fungsi baru untuk memulai dan menghentikan interupsi timer (Input Capture)
 void FlowSensor_Start(FlowSensor_t *sensor);
 void FlowSensor_Stop(FlowSensor_t *sensor);
-
-// Fungsi ini akan menggantikan FlowSensor_ProcessEXTI
-void FlowSensor_ProcessIC(TIM_HandleTypeDef *htim);
-
+void FlowSensor_ProcessIC(TIM_HandleTypeDef *htim); // ISR Handler
 void FlowSensor_Read(FlowSensor_t *sensor, long calibration);
 void FlowSensor_SetType(FlowSensor_t *sensor, uint16_t type);
 

@@ -5,12 +5,26 @@
  *      Author: ferry
  */
 
+
+
 #include "flowmeter/flowmeter_driver.h"
 #include <stddef.h>
 
-// Maksimal sensor yang kita gunakan: FM_INLET, FM_OUTLET, FM_FERTILIZER
-#define MAX_FLOW_SENSORS 3
-static FlowSensor_t* flow_sensors[MAX_FLOW_SENSORS] = {NULL};
+// Maksimal channel per Timer STM32 adalah 4
+#define MAX_TIMER_CHANNELS 4
+
+// Direct Mapping Pointer untuk eksekusi O(1) di ISR.
+// Asumsi: Semua sensor flow menggunakan channel dari Timer yang sama (misal TIM2).
+static FlowSensor_t* channel_map[MAX_TIMER_CHANNELS] = {NULL};
+
+// Lookup table untuk mengubah nilai bitmask HAL_TIM_ACTIVE_CHANNEL_x menjadi index 0-3
+// HAL_TIM_ACTIVE_CHANNEL_1 = 1 (0x01) -> Index 0
+// HAL_TIM_ACTIVE_CHANNEL_2 = 2 (0x02) -> Index 1
+// HAL_TIM_ACTIVE_CHANNEL_3 = 4 (0x04) -> Index 2
+// HAL_TIM_ACTIVE_CHANNEL_4 = 8 (0x08) -> Index 3
+static const uint8_t active_ch_to_index[9] = {
+    0, 0, 1, 0, 2, 0, 0, 0, 3  // Indexing aman tanpa fungsi kompleks
+};
 
 void FlowSensor_Init(FlowSensor_t *sensor, uint16_t type, TIM_HandleTypeDef* htim, uint32_t channel) {
     if (sensor == NULL) return;
@@ -27,25 +41,39 @@ void FlowSensor_Init(FlowSensor_t *sensor, uint16_t type, TIM_HandleTypeDef* hti
     sensor->volume = 0.0f;
     sensor->time_before = xTaskGetTickCount();
 
-    // Daftarkan sensor ke memori global agar bisa diproses oleh fungsi Interupsi
-    for (int i = 0; i < MAX_FLOW_SENSORS; i++) {
-        if (flow_sensors[i] == NULL || flow_sensors[i] == sensor) {
-            flow_sensors[i] = sensor;
-            break;
-        }
+    // 1. Pre-calculate HAL Active Channel (Agar tidak dilakukan di dalam ISR)
+    // 2. Petakan sensor ke array channel_map (Direct Mapping)
+    uint8_t map_index = 0;
+    switch(channel) {
+        case TIM_CHANNEL_1:
+            sensor->hal_active_channel = HAL_TIM_ACTIVE_CHANNEL_1;
+            map_index = 0; break;
+        case TIM_CHANNEL_2:
+            sensor->hal_active_channel = HAL_TIM_ACTIVE_CHANNEL_2;
+            map_index = 1; break;
+        case TIM_CHANNEL_3:
+            sensor->hal_active_channel = HAL_TIM_ACTIVE_CHANNEL_3;
+            map_index = 2; break;
+        case TIM_CHANNEL_4:
+            sensor->hal_active_channel = HAL_TIM_ACTIVE_CHANNEL_4;
+            map_index = 3; break;
+        default:
+            sensor->hal_active_channel = HAL_TIM_ACTIVE_CHANNEL_CLEARED;
+            return; // Channel tidak valid
     }
+
+    // Daftarkan pointer sensor ke mapping global agar dipanggil oleh ISR
+    channel_map[map_index] = sensor;
 }
 
 void FlowSensor_Start(FlowSensor_t *sensor) {
     if (sensor != NULL && sensor->htim != NULL) {
-        // Mengaktifkan Input Capture Interrupt
         HAL_TIM_IC_Start_IT(sensor->htim, sensor->tim_channel);
     }
 }
 
 void FlowSensor_Stop(FlowSensor_t *sensor) {
     if (sensor != NULL && sensor->htim != NULL) {
-        // Mematikan Input Capture Interrupt jika tidak digunakan
         HAL_TIM_IC_Stop_IT(sensor->htim, sensor->tim_channel);
     }
 }
@@ -55,46 +83,41 @@ void FlowSensor_SetType(FlowSensor_t *sensor, uint16_t type) {
     sensor->pulse1liter = (float)type;
 }
 
-// Fungsi Internal untuk menambah pulsa (Berjalan di dalam ISR)
-static inline void FlowSensor_Count(FlowSensor_t *sensor) {
-    if (sensor != NULL) {
-        sensor->pulse++;
-    }
-}
-
-// Jembatan Interupsi Timer (Input Capture)
+// -------------------------------------------------------------------------
+// ISR Handler - SANGAT CEPAT, TANPA LOOPING, TANPA SWITCH-CASE
+// -------------------------------------------------------------------------
 void FlowSensor_ProcessIC(TIM_HandleTypeDef *htim) {
-    for (int i = 0; i < MAX_FLOW_SENSORS; i++) {
-        if (flow_sensors[i] != NULL && flow_sensors[i]->htim->Instance == htim->Instance) {
+    uint32_t active_ch = htim->Channel;
 
-            // Konversi TIM_CHANNEL_x ke konvensi HAL_TIM_ACTIVE_CHANNEL_x
-            uint32_t expected_hal_channel = HAL_TIM_ACTIVE_CHANNEL_CLEARED;
-            switch(flow_sensors[i]->tim_channel) {
-                case TIM_CHANNEL_1: expected_hal_channel = HAL_TIM_ACTIVE_CHANNEL_1; break;
-                case TIM_CHANNEL_2: expected_hal_channel = HAL_TIM_ACTIVE_CHANNEL_2; break;
-                case TIM_CHANNEL_3: expected_hal_channel = HAL_TIM_ACTIVE_CHANNEL_3; break;
-                case TIM_CHANNEL_4: expected_hal_channel = HAL_TIM_ACTIVE_CHANNEL_4; break;
-            }
+    // Pastikan channel valid (bukan CLEARED dan max nilai mask adalah 8)
+    if (active_ch == HAL_TIM_ACTIVE_CHANNEL_CLEARED || active_ch > 8) {
+        return;
+    }
 
-            // Jika interupsi berasal dari channel milik sensor ini, tambah pulsanya
-            if (htim->Channel == expected_hal_channel) {
-                FlowSensor_Count(flow_sensors[i]);
-            }
-        }
+    // O(1) Lookup: Ubah flag bitmask channel ke index 0-3
+    uint8_t idx = active_ch_to_index[active_ch];
+
+    // Cek apakah ada sensor yang terdaftar di index ini dan menggunakan timer yang sama
+    if (channel_map[idx] != NULL && channel_map[idx]->htim->Instance == htim->Instance) {
+        channel_map[idx]->pulse++;
     }
 }
 
-// Fungsi pembacaan volume di bawah ini tidak ada perubahan logika dari versi sebelumnya.
+// -------------------------------------------------------------------------
+// Fungsi Pembacaan Volume - Dioptimasi dengan CRITICAL SECTION yang presisi
+// -------------------------------------------------------------------------
 void FlowSensor_Read(FlowSensor_t *sensor, long calibration) {
     if (sensor == NULL) return;
 
     TickType_t current_time = xTaskGetTickCount();
     TickType_t elapsed_ticks = current_time - sensor->time_before;
 
+    // Cegah pembagian dengan nol jika fungsi dipanggil terlalu cepat
     if (elapsed_ticks == 0) return;
 
     float elapsed_seconds = ((float)elapsed_ticks * portTICK_PERIOD_MS) / 1000.0f;
 
+    // Amankan pengambilan pulsa lokal dari gangguan ISR
     taskENTER_CRITICAL();
     uint32_t local_pulse = sensor->pulse;
     sensor->pulse = 0; // reset local pulse

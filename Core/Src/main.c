@@ -165,6 +165,13 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
     FlowSensor_ProcessIC(htim);
 }
 
+// Callback ini akan dipicu otomatis ketika DMA selesai menyalin 2 data (PH & TDS)
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+    // Lempar sinyal eksekusi ke driver kualitas air kita
+    WaterQuality_ADC_Callback(hadc);
+}
+
 /* USER CODE END 4 */
 
 /**

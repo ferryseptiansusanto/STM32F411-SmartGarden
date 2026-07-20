@@ -5,35 +5,27 @@
  *      Author: ferry
  */
 
-#ifndef WATER_QUALITY_DRIVER_H_
-#define WATER_QUALITY_DRIVER_H_
+#ifndef DRIVERS_WATER_QUALITY_DRIVER_H_
+#define DRIVERS_WATER_QUALITY_DRIVER_H_
 
 #include "main.h"
-#include "FreeRTOS.h"
-#include "task.h"
 
-// Alias Index DMA berdasarkan Rank ADC Anda
-#define ADC_INDEX_TDS  0  // Rank 1
-#define ADC_INDEX_PH   1  // Rank 2
+// Makro indeks untuk memperjelas posisi array DMA
+#define ADC_INDEX_TDS 0
+#define ADC_INDEX_PH  1
 
 typedef struct {
     float ph_val;
     float tds_val;
     float ec_val;
-    float temp_val;
+    // float temp_val; // (Asumsi untuk DS18B20 jika ada)
 } WaterQualityData_t;
 
-// Inisialisasi ADC & Start DMA
 void WaterQuality_Init(ADC_HandleTypeDef *hadc);
-
-// Memproses data dari DMA Buffer
 void WaterQuality_ProcessAnalog(void);
-
-// Fungsi DS18B20 (Digital Temp)
-void DS18B20_RequestTemperature(void);
-float DS18B20_ReadTemperature(void);
-
-// Mengambil data terkini
 WaterQualityData_t WaterQuality_GetData(void);
 
-#endif /* WATER_QUALITY_DRIVER_H_ */
+// Jembatan Callback DMA
+void WaterQuality_ADC_Callback(ADC_HandleTypeDef *hadc);
+
+#endif /* DRIVERS_WATER_QUALITY_DRIVER_H_ */

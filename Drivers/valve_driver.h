@@ -5,23 +5,26 @@
  *      Author: ferry
  */
 
-#ifndef VALVE_DRIVER_H_
-#define VALVE_DRIVER_H_
+
+#ifndef DRIVERS_VALVE_DRIVER_H_
+#define DRIVERS_VALVE_DRIVER_H_
 
 #include "main.h"
 
 typedef enum {
-    VALVE_INPUT,
+    VALVE_INPUT = 0,
     VALVE_PUPUK_1,
     VALVE_PUPUK_2,
     VALVE_PUPUK_3,
     VALVE_PUPUK_4,
     VALVE_PUPUK_5,
-    VALVE_OUTPUT
+    VALVE_OUTPUT,
+    VALVE_MAX  // <-- Sentinel Value: Otomatis menyimpan jumlah total elemen valve
 } ValveType;
 
 void Valve_Init(void);
+void Valve_SetState(ValveType valve, GPIO_PinState state);
 void Valve_Open(ValveType valve);
 void Valve_Close(ValveType valve);
 
-#endif /* VALVE_DRIVER_H_ */
+#endif /* DRIVERS_VALVE_DRIVER_H_ */

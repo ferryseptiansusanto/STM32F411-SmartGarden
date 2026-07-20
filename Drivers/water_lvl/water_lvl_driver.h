@@ -14,9 +14,9 @@
 #include "queue.h"
 
 typedef enum {
-    WATER_LVL_FULL = 0,
-    WATER_LVL_EMPTY,
-    WATER_LVL_COUNT
+    LVL_TANK_FULL = 0,
+	LVL_TANK_EMPTY,
+	LVL_TANK_COUNT
 } WtrLvl_Types;
 
 // Struktur pesan yang akan dikirim dari Interrupt ke Task

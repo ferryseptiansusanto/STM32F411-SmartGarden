@@ -39,7 +39,7 @@ static StorageStatus_t sd_wait_ready(SPI_Context *dev) {
     uint32_t timeout = GetTick() + SPI_TIMEOUT_MS;
     uint8_t resp;
     do {
-        if (SPI_TransmitReceive(dev, dummy, &resp) != SPI_OK) {
+        if (SPI_TransmitReceive(dev, dummy, &resp, 1) != SPI_OK) {
 //        	printf("SPI error in wait_ready\r\n");
         	return STORAGE_ERROR;
         }
@@ -67,7 +67,7 @@ static uint8_t sd_send_cmd(SPI_Context *dev, uint8_t cmd, uint32_t arg, uint8_t 
 
     // tunggu response
     do {
-    	if (SPI_TransmitReceive(dev, dummy, &response) != SPI_OK) return 0xFF;
+    	if (SPI_TransmitReceive(dev, dummy, &response, 1) != SPI_OK) return 0xFF;
     } while ((response & 0x80) && --retry);
 
     return (retry ? response : 0xFF);
@@ -99,7 +99,7 @@ StorageStatus_t STORAGE_Init_Cmd_Sequence(SPI_Context *dev) {
 	response = sd_send_cmd(dev, 8, 0x000001AA, 0x87);
 	// baca 4 byte echo-back
 	for (i = 0; i < 4; i++)
-		if (SPI_TransmitReceive(dev, dummy, &r7[i]) != SPI_OK)
+		if (SPI_TransmitReceive(dev, dummy, &r7[i], 1) != SPI_OK)
 			return STORAGE_ERROR;
 
 	SPI_Unselect_CS(dev);
@@ -122,7 +122,7 @@ StorageStatus_t STORAGE_Init_Cmd_Sequence(SPI_Context *dev) {
             response = sd_send_cmd(dev, 58, 0, 0xFF);
             uint8_t ocr[4];
             for (i = 0; i < 4; i++)
-        		if (SPI_TransmitReceive(dev, dummy, &ocr[i]) != SPI_OK)
+        		if (SPI_TransmitReceive(dev, dummy, &ocr[i], 1) != SPI_OK)
         			return STORAGE_ERROR;
             SPI_Unselect_CS(dev);
             if (ocr[0] & 0x40) sdhc = 1;
@@ -169,7 +169,7 @@ StorageStatus_t STORAGE_ReadBlocks(SPI_Context *dev, uint8_t *buff, uint32_t sec
         uint32_t timeout = GetTick() + 100;
         uint8_t token;
         do {
-            if (SPI_TransmitReceive(dev, dummy, &token) != SPI_OK) {
+            if (SPI_TransmitReceive(dev, dummy, &token, 1) != SPI_OK) {
                 SPI_Unselect_CS(dev);
                 return STORAGE_ERROR;
             }
@@ -192,14 +192,14 @@ StorageStatus_t STORAGE_ReadBlocks(SPI_Context *dev, uint8_t *buff, uint32_t sec
             SPI_TransmitReceiveBuffer(dev, crc, crc_tmp, 2);
         } else {
             for (int j = 0; j < SECTOR_SIZE; j++) {
-                if (SPI_TransmitReceive(dev, dummy, &buff[j]) != SPI_OK) {
+                if (SPI_TransmitReceive(dev, dummy, &buff[j], 1) != SPI_OK) {
                     SPI_Unselect_CS(dev);
                     return STORAGE_ERROR;
                 }
             }
             uint8_t tmp;
-            SPI_TransmitReceive(dev, dummy, &tmp);
-            SPI_TransmitReceive(dev, dummy, &tmp);
+            SPI_TransmitReceive(dev, dummy, &tmp, 1);
+            SPI_TransmitReceive(dev, dummy, &tmp, 1);
         }
 
     } else {
@@ -215,7 +215,7 @@ StorageStatus_t STORAGE_ReadBlocks(SPI_Context *dev, uint8_t *buff, uint32_t sec
             uint32_t timeout = GetTick() + 100;
             uint8_t token;
             do {
-                if (SPI_TransmitReceive(dev, dummy, &token) != SPI_OK) {
+                if (SPI_TransmitReceive(dev, dummy, &token, 1) != SPI_OK) {
                     SPI_Unselect_CS(dev);
                     return STORAGE_ERROR;
                 }
@@ -237,14 +237,14 @@ StorageStatus_t STORAGE_ReadBlocks(SPI_Context *dev, uint8_t *buff, uint32_t sec
                 SPI_TransmitReceiveBuffer(dev, crc, crc_tmp, 2);
             } else {
                 for (int j = 0; j < SECTOR_SIZE; j++) {
-                    if (SPI_TransmitReceive(dev, dummy, &buff[i * SECTOR_SIZE + j]) != SPI_OK) {
+                    if (SPI_TransmitReceive(dev, dummy, &buff[i * SECTOR_SIZE + j], 1) != SPI_OK) {
                         SPI_Unselect_CS(dev);
                         return STORAGE_ERROR;
                     }
                 }
                 uint8_t tmp;
-                SPI_TransmitReceive(dev, dummy, &tmp);
-                SPI_TransmitReceive(dev, dummy, &tmp);
+                SPI_TransmitReceive(dev, dummy, &tmp, 1);
+                SPI_TransmitReceive(dev, dummy, &tmp, 1);
             }
         }
 
@@ -276,7 +276,7 @@ StorageStatus_t STORAGE_WriteBlocks(SPI_Context *dev, const uint8_t *buff, uint3
 
         // Start token 0xFE
         uint8_t tmp;
-        SPI_TransmitReceive(dev, 0xFE, &tmp);
+        SPI_TransmitReceive(dev, 0xFE, &tmp, 1);
 
         // Kirim 512 byte data
         if (dev->mode == SPI_MODE_DMA) {
@@ -285,22 +285,22 @@ StorageStatus_t STORAGE_WriteBlocks(SPI_Context *dev, const uint8_t *buff, uint3
             }
         } else {
             for (int j = 0; j < SECTOR_SIZE; j++) {
-                SPI_TransmitReceive(dev, buff[j], &tmp);
+                SPI_TransmitReceive(dev, buff[j], &tmp, 1);
             }
         }
 
         // Dummy CRC
-        SPI_TransmitReceive(dev, 0xFF, &tmp);
-        SPI_TransmitReceive(dev, 0xFF, &tmp);
+        SPI_TransmitReceive(dev, 0xFF, &tmp, 1);
+        SPI_TransmitReceive(dev, 0xFF, &tmp, 1);
 
         // Data response
-        SPI_TransmitReceive(dev, 0xFF, &res);
+        SPI_TransmitReceive(dev, 0xFF, &res, 1);
         if ((res & 0x1F) != 0x05) { SPI_Unselect_CS(dev); return STORAGE_ERROR; }
 
         // Tunggu busy selesai
         uint32_t timeout = GetTick() + 500;
         do {
-            SPI_TransmitReceive(dev, 0xFF, &tmp);
+            SPI_TransmitReceive(dev, 0xFF, &tmp, 1);
             if (tmp != 0x00) break;
         } while (GetTick() < timeout);
         if (tmp != 0xFF) { SPI_Unselect_CS(dev); return STORAGE_ERROR; }
@@ -314,7 +314,7 @@ StorageStatus_t STORAGE_WriteBlocks(SPI_Context *dev, const uint8_t *buff, uint3
         for (uint32_t i = 0; i < count; i++) {
             uint8_t tmp;
             // Start token 0xFC
-            SPI_TransmitReceive(dev, 0xFC, &tmp);
+            SPI_TransmitReceive(dev, 0xFC, &tmp, 1);
 
             // Kirim 512 byte data
             if (dev->mode == SPI_MODE_DMA) {
@@ -323,22 +323,22 @@ StorageStatus_t STORAGE_WriteBlocks(SPI_Context *dev, const uint8_t *buff, uint3
                 }
             } else {
                 for (int j = 0; j < SECTOR_SIZE; j++) {
-                    SPI_TransmitReceive(dev, buff[i * SECTOR_SIZE + j], &tmp);
+                    SPI_TransmitReceive(dev, buff[i * SECTOR_SIZE + j], &tmp, 1);
                 }
             }
 
             // Dummy CRC
-            SPI_TransmitReceive(dev, 0xFF, &tmp);
-            SPI_TransmitReceive(dev, 0xFF, &tmp);
+            SPI_TransmitReceive(dev, 0xFF, &tmp, 1);
+            SPI_TransmitReceive(dev, 0xFF, &tmp, 1);
 
             // Data response
-            SPI_TransmitReceive(dev, 0xFF, &res);
+            SPI_TransmitReceive(dev, 0xFF, &res, 1);
             if ((res & 0x1F) != 0x05) { SPI_Unselect_CS(dev); return STORAGE_ERROR; }
 
             // Tunggu busy selesai
             uint32_t timeout = GetTick() + 500;
             do {
-                SPI_TransmitReceive(dev, 0xFF, &tmp);
+                SPI_TransmitReceive(dev, 0xFF, &tmp, 1);
                 if (tmp != 0x00) break;
             } while (GetTick() < timeout);
             if (tmp != 0xFF) { SPI_Unselect_CS(dev); return STORAGE_ERROR; }
@@ -346,12 +346,12 @@ StorageStatus_t STORAGE_WriteBlocks(SPI_Context *dev, const uint8_t *buff, uint3
 
         // STOP_TRAN token 0xFD
         uint8_t tmp;
-        SPI_TransmitReceive(dev, 0xFD, &tmp);
+        SPI_TransmitReceive(dev, 0xFD, &tmp, 1);
 
         // Tunggu busy selesai
         uint32_t timeout = GetTick() + 500;
         do {
-            SPI_TransmitReceive(dev, 0xFF, &tmp);
+            SPI_TransmitReceive(dev, 0xFF, &tmp, 1);
             if (tmp != 0x00) break;
         } while (GetTick() < timeout);
         if (tmp != 0xFF) { SPI_Unselect_CS(dev); return STORAGE_ERROR; }
@@ -388,7 +388,7 @@ StorageStatus_t STORAGE_ReadCID(SPI_Context *dev, uint8_t *cid) {
     uint32_t timeout = GetTick() + 100;
     uint8_t token;
     do {
-        if (SPI_TransmitReceive(dev, dummy, &token) != SPI_OK) {
+        if (SPI_TransmitReceive(dev, dummy, &token, 1) != SPI_OK) {
             SPI_Unselect_CS(dev);
             return STORAGE_ERROR;
         }
@@ -402,7 +402,7 @@ StorageStatus_t STORAGE_ReadCID(SPI_Context *dev, uint8_t *cid) {
 
     // Baca 16 byte data CID
     for (int i = 0; i < 16; i++) {
-        if (SPI_TransmitReceive(dev, dummy, &cid[i]) != SPI_OK) {
+        if (SPI_TransmitReceive(dev, dummy, &cid[i], 1) != SPI_OK) {
             SPI_Unselect_CS(dev);
             return STORAGE_ERROR;
         }
@@ -410,8 +410,8 @@ StorageStatus_t STORAGE_ReadCID(SPI_Context *dev, uint8_t *cid) {
 
     // Buang 2 byte CRC
     uint8_t tmp;
-    SPI_TransmitReceive(dev, dummy, &tmp);
-    SPI_TransmitReceive(dev, dummy, &tmp);
+    SPI_TransmitReceive(dev, dummy, &tmp, 1);
+    SPI_TransmitReceive(dev, dummy, &tmp, 1);
 
     SPI_Unselect_CS(dev);
     SPI_Transmit(dev, &dummy, 1); // dummy clock
@@ -436,7 +436,7 @@ StorageStatus_t STORAGE_ReadCSD(SPI_Context *dev, uint8_t *csd) {
     uint32_t timeout = GetTick() + 100;
     uint8_t token;
     do {
-        if (SPI_TransmitReceive(dev, dummy, &token) != SPI_OK) {
+        if (SPI_TransmitReceive(dev, dummy, &token, 1) != SPI_OK) {
             SPI_Unselect_CS(dev);
             return STORAGE_ERROR;
         }
@@ -450,7 +450,7 @@ StorageStatus_t STORAGE_ReadCSD(SPI_Context *dev, uint8_t *csd) {
 
     // Baca 16 byte data CSD
     for (int i = 0; i < 16; i++) {
-        if (SPI_TransmitReceive(dev, dummy, &csd[i]) != SPI_OK) {
+        if (SPI_TransmitReceive(dev, dummy, &csd[i], 1) != SPI_OK) {
             SPI_Unselect_CS(dev);
             return STORAGE_ERROR;
         }
@@ -458,8 +458,8 @@ StorageStatus_t STORAGE_ReadCSD(SPI_Context *dev, uint8_t *csd) {
 
     // Buang 2 byte CRC
     uint8_t tmp;
-    SPI_TransmitReceive(dev, dummy, &tmp);
-    SPI_TransmitReceive(dev, dummy, &tmp);
+    SPI_TransmitReceive(dev, dummy, &tmp, 1);
+    SPI_TransmitReceive(dev, dummy, &tmp, 1);
 
     SPI_Unselect_CS(dev);
     SPI_Transmit(dev, &dummy, 1); // dummy clock

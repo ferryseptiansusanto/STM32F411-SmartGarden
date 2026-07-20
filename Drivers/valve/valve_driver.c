@@ -6,6 +6,7 @@
  */
 
 #include "valve_driver.h"
+
 #include <stddef.h> // Diperlukan untuk macro NULL
 
 // Struktur mapping valve → port & pin
@@ -16,13 +17,14 @@ typedef struct {
 
 // 1. Tentukan ukuran array secara eksplisit menggunakan VALVE_MAX
 static const ValveMap_t valveMap[VALVE_MAX] = {
-    [VALVE_INPUT]   = {VALVE_IN_GPIO_Port, VALVE_IN_Pin},
-    [VALVE_PUPUK_1] = {PUPUK_1_GPIO_Port, PUPUK_1_Pin},
-    [VALVE_PUPUK_2] = {PUPUK_2_GPIO_Port, PUPUK_2_Pin},
-    [VALVE_PUPUK_3] = {PUPUK_3_GPIO_Port, PUPUK_3_Pin},
-    [VALVE_PUPUK_4] = {PUPUK_4_GPIO_Port, PUPUK_4_Pin},
-    [VALVE_PUPUK_5] = {PUPUK_5_GPIO_Port, PUPUK_5_Pin},
-    [VALVE_OUTPUT]  = {VALVE_OUT_GPIO_Port, VALVE_OUT_Pin}
+    [VALVE_TANK_IN]   = {VALVE_TANK_IN_GPIO_Port, VALVE_TANK_IN_Pin},
+    [VALVE_PUPUK_1] = {VALVE_FERT1_GPIO_Port, VALVE_FERT1_Pin},
+    [VALVE_PUPUK_2] = {VALVE_FERT2_GPIO_Port, VALVE_FERT2_Pin},
+    [VALVE_PUPUK_3] = {VALVE_FERT3_GPIO_Port, VALVE_FERT3_Pin},
+    [VALVE_PUPUK_4] = {VALVE_FERT4_GPIO_Port, VALVE_FERT4_Pin},
+    [VALVE_PUPUK_5] = {VALVE_FERT5_GPIO_Port, VALVE_FERT5_Pin},
+	[VALVE_TANK_OUT]  = {VALVE_TANK_OUT_GPIO_Port, VALVE_TANK_OUT_Pin},
+	[VALVE_WATER_IN]  = {VALVE_WATER_IN_GPIO_Port, VALVE_WATER_IN_Pin},
 };
 
 // 2. COMPILE-TIME PROTECTION (Proteksi saat Build Proyek)

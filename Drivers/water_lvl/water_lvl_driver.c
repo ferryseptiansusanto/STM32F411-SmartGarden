@@ -17,9 +17,9 @@ typedef struct {
     bool current_state;     // Menyimpan status pelampung yang sudah ter-debounce
 } WtrLvlMap;
 
-static WtrLvlMap wtrLvlMap[WATER_LVL_COUNT] = {
-    [WATER_LVL_FULL]  = {WATER_LVL_1_GPIO_Port, WATER_LVL_1_Pin, 0, false},
-    [WATER_LVL_EMPTY] = {WATER_LVL_2_GPIO_Port, WATER_LVL_2_Pin, 0, false},
+static WtrLvlMap wtrLvlMap[LVL_TANK_COUNT] = {
+    [LVL_TANK_FULL]  = {LVL_TANK_FULL_GPIO_Port, LVL_TANK_FULL_Pin, 0, false},
+    [LVL_TANK_EMPTY] = {LVL_TANK_EMPTY_GPIO_Port, LVL_TANK_EMPTY_Pin, 0, false},
 };
 
 QueueHandle_t wtrLvlQueue = NULL;
@@ -29,25 +29,25 @@ void WtrLvl_Init(void) {
     wtrLvlQueue = xQueueCreate(5, sizeof(WtrLvl_Event_t));
 
     // 2. Baca status fisik awal saat mesin baru dinyalakan
-    wtrLvlMap[WATER_LVL_FULL].current_state =
-        (HAL_GPIO_ReadPin(wtrLvlMap[WATER_LVL_FULL].port, wtrLvlMap[WATER_LVL_FULL].pin) == GPIO_PIN_RESET);
+    wtrLvlMap[LVL_TANK_FULL].current_state =
+        (HAL_GPIO_ReadPin(wtrLvlMap[LVL_TANK_FULL].port, wtrLvlMap[LVL_TANK_FULL].pin) == GPIO_PIN_RESET);
 
-    wtrLvlMap[WATER_LVL_EMPTY].current_state =
-        (HAL_GPIO_ReadPin(wtrLvlMap[WATER_LVL_EMPTY].port, wtrLvlMap[WATER_LVL_EMPTY].pin) == GPIO_PIN_RESET);
+    wtrLvlMap[LVL_TANK_EMPTY].current_state =
+        (HAL_GPIO_ReadPin(wtrLvlMap[LVL_TANK_EMPTY].port, wtrLvlMap[LVL_TANK_EMPTY].pin) == GPIO_PIN_RESET);
 }
 
 // Mengembalikan status yang ada di memori (sudah terproteksi debouncing)
 bool WtrLvl_Read(WtrLvl_Types type) {
-    if (type >= WATER_LVL_COUNT) return false;
+    if (type >= LVL_TANK_COUNT) return false;
     return wtrLvlMap[type].current_state;
 }
 
 bool isWtrLvl_Full(void) {
-    return WtrLvl_Read(WATER_LVL_FULL);
+    return WtrLvl_Read(LVL_TANK_FULL);
 }
 
 bool isWtrLvl_Empty(void) {
-    return WtrLvl_Read(WATER_LVL_EMPTY);
+    return WtrLvl_Read(LVL_TANK_EMPTY);
 }
 
 // --- FUNGSI INTERUPSI (EXTI HANDLER) ---
@@ -56,7 +56,7 @@ void WtrLvl_EXTI_Callback(uint16_t GPIO_Pin) {
     uint32_t current_tick = xTaskGetTickCountFromISR(); // Ambil waktu OS saat ini
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-    for (int i = 0; i < WATER_LVL_COUNT; i++) {
+    for (int i = 0; i < LVL_TANK_COUNT; i++) {
         if (GPIO_Pin == wtrLvlMap[i].pin) {
 
             // Software Debouncing: Abaikan jika interupsi terjadi sangat berdekatan

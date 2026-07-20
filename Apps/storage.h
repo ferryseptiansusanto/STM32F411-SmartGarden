@@ -12,7 +12,6 @@
 #include "stdbool.h"
 #include "stdio.h"
 #include "spi_wrapper.h"
-#include "device_context.h"
 #define STORAGE_PORT_CS GPIOA
 #define STORAGE_PIN_CS GPIO_PIN_4
 

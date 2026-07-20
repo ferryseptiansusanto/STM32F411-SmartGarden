@@ -12,13 +12,14 @@
 #include "main.h"
 
 typedef enum {
-    VALVE_INPUT = 0,
+    VALVE_TANK_IN = 0,
     VALVE_PUPUK_1,
     VALVE_PUPUK_2,
     VALVE_PUPUK_3,
     VALVE_PUPUK_4,
     VALVE_PUPUK_5,
-    VALVE_OUTPUT,
+    VALVE_TANK_OUT,
+    VALVE_WATER_IN,
     VALVE_MAX  // <-- Sentinel Value: Otomatis menyimpan jumlah total elemen valve
 } ValveType;
 

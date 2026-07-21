@@ -22,9 +22,11 @@
 
 typedef struct {
     UART_HandleTypeDef *huart;
-    SemaphoreHandle_t tx_sem;
-    MessageBufferHandle_t rx_msg_buf; // Menggantikan rx_sem
-    uint8_t dma_rx_buffer[UART_DMA_RX_BUFFER_SIZE]; // Memori internal DMA
+    SemaphoreHandle_t tx_sem;       // Untuk sinkronisasi DMA Selesai
+    SemaphoreHandle_t tx_mutex;     // Untuk mencegah tabrakan data antar Task
+    MessageBufferHandle_t rx_msg_buf;
+    uint8_t dma_rx_buffer[UART_DMA_RX_BUFFER_SIZE];
+    uint8_t dma_tx_buffer[128];     // Buffer persisten untuk pengiriman DMA
 } UART_Context;
 
 extern UART_HandleTypeDef huart2;

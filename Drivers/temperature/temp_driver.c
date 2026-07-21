@@ -86,19 +86,19 @@ static void DS18B20_WriteBit(uint8_t bit) {
  * @brief   Membaca 1 bit data dari bus 1-Wire.
  */
 static uint8_t DS18B20_ReadBit(void) {
-    uint8_t bit = 0;
-    Set_Pin_Output();
-    HAL_GPIO_WritePin(ds_port, ds_pin, GPIO_PIN_RESET);
-    DelayUs(2);
 
-    Set_Pin_Input();
-    DelayUs(10);
+	uint8_t bit = 0;
+	taskENTER_CRITICAL(); // Matikan interupsi sejenak
+	Set_Pin_Output();
+	HAL_GPIO_WritePin(ds_port, ds_pin, GPIO_PIN_RESET);
+	DelayUs(2);
+	Set_Pin_Input();
+	DelayUs(10);
+	if (HAL_GPIO_ReadPin(ds_port, ds_pin) == GPIO_PIN_SET) { bit = 1; }
+	taskEXIT_CRITICAL();  // Nyalakan interupsi kembali
+	DelayUs(50); // Delay sisa slot waktu bebas di luar critical section
+	return bit;
 
-    if (HAL_GPIO_ReadPin(ds_port, ds_pin) == GPIO_PIN_SET) {
-        bit = 1;
-    }
-    DelayUs(50);
-    return bit;
 }
 
 /**

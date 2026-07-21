@@ -18,15 +18,29 @@ static uint8_t calc_crc(USART_Frame *f) {
 }
 
 int USART_Datalink_SendFrame(UART_Context *dev, USART_Frame *frame) {
-    frame->crc = calc_crc(frame);
-    uint8_t buf[FRAME_MAX_LEN + 4];
-    buf[0] = frame->header;
-    buf[1] = frame->cmd;
-    buf[2] = frame->len;
-    for (int i = 0; i < frame->len; i++) buf[3 + i] = frame->payload[i];
-    buf[3 + frame->len] = frame->crc;
+    if (dev == NULL || dev->tx_mutex == NULL) return 0;
 
-    return (UART_Send(dev, buf, frame->len + 4) == HAL_OK);
+    // 1. Ambil hak eksklusif (Mutex) agar tidak ada task lain yang menyela
+    if (xSemaphoreTake(dev->tx_mutex, pdMS_TO_TICKS(1000)) != pdPASS) {
+        return 0; // Gagal mendapatkan akses ke hardware TX
+    }
+
+    // 2. Rakit frame langsung di buffer persisten milik hardware
+    frame->crc = calc_crc(frame);
+    dev->dma_tx_buffer[0] = frame->header;
+    dev->dma_tx_buffer[1] = frame->cmd;
+    dev->dma_tx_buffer[2] = frame->len;
+    for (int i = 0; i < frame->len; i++) {
+        dev->dma_tx_buffer[3 + i] = frame->payload[i];
+    }
+    dev->dma_tx_buffer[3 + frame->len] = frame->crc;
+
+    // 3. Kirim via DMA
+    int result = (UART_Send(dev, dev->dma_tx_buffer, frame->len + 4) == HAL_OK);
+
+    // 4. Lepaskan Mutex
+    xSemaphoreGive(dev->tx_mutex);
+    return result;
 }
 
 // ---------------------------------------------------------

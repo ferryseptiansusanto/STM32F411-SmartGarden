@@ -1,6 +1,6 @@
 #MicroXplorer Configuration settings - do not modify
-ADC1.Channel-1\#ChannelRegularConversion=ADC_CHANNEL_8
-ADC1.Channel-2\#ChannelRegularConversion=ADC_CHANNEL_3
+ADC1.Channel-1\#ChannelRegularConversion=ADC_CHANNEL_3
+ADC1.Channel-2\#ChannelRegularConversion=ADC_CHANNEL_8
 ADC1.ContinuousConvMode=ENABLE
 ADC1.DMAContinuousRequests=ENABLE
 ADC1.IPParameters=Rank-1\#ChannelRegularConversion,master,Channel-1\#ChannelRegularConversion,SamplingTime-1\#ChannelRegularConversion,NbrOfConversionFlag,ScanConvMode,ContinuousConvMode,NbrOfConversion,DMAContinuousRequests,Rank-2\#ChannelRegularConversion,Channel-2\#ChannelRegularConversion,SamplingTime-2\#ChannelRegularConversion

@@ -118,6 +118,25 @@ int main(void)
   /* Validasi dan Load Konfigurasi (Manajer) */
   ConfigManager_Init(&Eeprom_Ctx);
 
+  // ========================================================
+  // TAMBAHKAN INISIALISASI DRIVER SENSOR DI SINI
+  // ========================================================
+
+  // 1. Inisialisasi Sensor Kualitas Air (Mengaktifkan DMA ADC)
+  WaterQuality_Init(&hadc1);
+
+  // 2. Inisialisasi Sensor Suhu DS18B20 (Sesuaikan Port & Pin dengan CubeMX Anda)
+  TempSensor_Init(TEMP_GPIO_Port, TEMP_Pin);
+
+  /* 3. Inisialisasi Flowmeter
+   * (Asumsi Anda punya variabel global/extern: FlowSensor_t flow_inlet, flow_outlet, dll)
+   * Contoh untuk 1 Flowmeter:
+   */
+  // FlowSensor_Init(&flow_inlet, sys_calib.fm_inlet_pulse_per_liter, &htim2, TIM_CHANNEL_1);
+  // FlowSensor_Start(&flow_inlet);
+
+  // ========================================================
+
   // 1. Buat Task Utama Aplikasi (otomatis menginisialisasi Queue internal)
   APP_TaskCreate(tskIDLE_PRIORITY + 2);
   vTaskStartScheduler();

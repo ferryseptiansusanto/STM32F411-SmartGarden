@@ -12,8 +12,8 @@
 #include <stdbool.h>
 
 // Makro indeks untuk memperjelas posisi array DMA
-#define ADC_INDEX_TDS 0
-#define ADC_INDEX_PH  1
+#define ADC_INDEX_PH 0
+#define ADC_INDEX_TDS  1
 
 // Alamat awal penyimpanan kalibrasi di EEPROM (bisa disesuaikan)
 #define WQ_CALIB_EEPROM_ADDR 0x0000

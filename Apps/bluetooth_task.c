@@ -35,15 +35,22 @@ void BLUETOOTH_AppTaskCreate(UART_Context *phy_device) {
 // -------------------------------------------------------------
 void BLUETOOTH_TaskTx(void *pvParameters) {
     UART_Context *phy = (UART_Context*)pvParameters;
-    char data[64];
+
+    // Gunakan struct pesan standar protokol, bukan raw string
+    USART_Message tx_msg;
 
     for (;;) {
-        // Task ini akan tidur sampai ada bagian sistem lain (misal FSM)
-        // yang mengirim string ke btQueueTx.
-        if (xQueueReceive(btQueueTx, &data, portMAX_DELAY) == pdPASS) {
+        // Task ini akan tidur (0% CPU) sampai ada pesan di Queue
+        // Pastikan btQueueTx dibuat dengan item size = sizeof(USART_Message)
+        if (xQueueReceive(btQueueTx, &tx_msg, portMAX_DELAY) == pdPASS) {
+
             if (phy != NULL) {
-                // Bungkus ke frame protokol dan kirim
-                BLUETOOTH_SendString(phy, data);
+                /*
+                 * Langsung berikan struct ini ke layer protokol.
+                 * Layer protokol akan merakitnya menjadi frame (Header + Cmd + Payload + CRC)
+                 * lalu memberikannya ke layer datalink yang sudah kita lindungi Mutex & DMA.
+                 */
+                UART_Protocol_Send(phy, &tx_msg);
             }
         }
     }
@@ -54,29 +61,42 @@ void BLUETOOTH_TaskTx(void *pvParameters) {
 // -------------------------------------------------------------
 void BLUETOOTH_TaskRx(void *pvParameters) {
     UART_Context *phy = (UART_Context*)pvParameters;
-    uint8_t buffer_tampung[128]; // Buffer lokal task untuk menerima dari MessageBuffer OS
+
+    // Gunakan buffer akumulasi persisten (menyimpan sisa data antar-siklus)
+    static uint8_t rx_accumulator[256];
+    static uint16_t accum_index = 0;
+
+    uint8_t temp_buf[UART_DMA_RX_BUFFER_SIZE];
     USART_Frame rx_frame;
     USART_Message rx_msg;
 
     for (;;) {
-        // 1. Task tertidur di sini, bangun HANYA jika ada paket data lengkap dari DMA
-        uint16_t length = UART_Receive_Message(phy, buffer_tampung, sizeof(buffer_tampung), portMAX_DELAY);
+        // Bangun jika ada potongan data baru dari DMA
+        uint16_t length = UART_Receive_Message(phy, temp_buf, sizeof(temp_buf), portMAX_DELAY);
 
         if (length > 0) {
+            // Cegah overflow pada akumulator
+            if (accum_index + length > sizeof(rx_accumulator)) {
+                accum_index = 0; // Reset jika buffer kepenuhan (pengaman)
+            }
 
-            // 2. Data Link Layer: Cari Header, ambil Payload, dan validasi kemurnian data (CRC)
-            if (USART_DatalinkDMA_ParseBuffer(buffer_tampung, length, &rx_frame)) {
+            // Tambahkan data baru ke ujung akumulator
+            memcpy(&rx_accumulator[accum_index], temp_buf, length);
+            accum_index += length;
 
-                // 3. Protocol Layer: Parsing dari bentuk Frame mentah ke Message terstruktur
+            // Coba parsing buffer akumulasi
+            if (USART_DatalinkDMA_ParseBuffer(rx_accumulator, accum_index, &rx_frame)) {
+
+                // Jika sukses mendapat 1 frame utuh, parse ke format Message
                 UART_ProtocolDMA_Parse(&rx_frame, &rx_msg);
 
-                // 4. Integrasi ke Sistem Utama: Lempar pesan yang sudah valid ke Queue FSM
+                // Lempar ke Queue Utama (FSM)
                 if (uartQueue != NULL) {
                     xQueueSend(uartQueue, &rx_msg, portMAX_DELAY);
-                } else if (btQueueRx != NULL) {
-                    // Fallback jika uartQueue belum tersedia
-                    xQueueSend(btQueueRx, &rx_msg, portMAX_DELAY);
                 }
+
+                // Hapus buffer akumulasi karena paket sudah berhasil diproses
+                accum_index = 0;
             }
         }
     }

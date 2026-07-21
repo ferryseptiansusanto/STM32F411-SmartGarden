@@ -17,13 +17,11 @@ static UART_Context* uart_registry[] = { &uart2_ctx };
 #define UART_REGISTRY_COUNT (sizeof(uart_registry) / sizeof(uart_registry[0]))
 
 void UART_Init(UART_Context *dev, UART_HandleTypeDef *huart) {
-    if (dev == NULL) return;
-
-    dev->huart = huart;
-    dev->tx_sem = xSemaphoreCreateBinary();
-
-    // Alokasi memori Message Buffer FreeRTOS
-    dev->rx_msg_buf = xMessageBufferCreate(UART_MSG_BUFFER_SIZE);
+	if (dev == NULL) return;
+	    dev->huart = huart;
+	    dev->tx_sem = xSemaphoreCreateBinary();
+	    dev->tx_mutex = xSemaphoreCreateMutex(); // Buat Mutex
+	    dev->rx_msg_buf = xMessageBufferCreate(UART_MSG_BUFFER_SIZE);
 }
 
 HAL_StatusTypeDef UART_Send(UART_Context *dev, const uint8_t *data, uint16_t len) {

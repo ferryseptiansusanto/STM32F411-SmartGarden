@@ -11,12 +11,13 @@ void BLUETOOTH_Init(UART_Context *dev, UART_HandleTypeDef *huart) {
     UART_Init(dev, huart);
 }
 
-void BLUETOOTH_SendString(UART_Context *dev, const char *str) {
+// Ubah parameternya untuk menerima tipe perintah
+void BLUETOOTH_SendMessage(UART_Context *dev, USART_Command cmd, const char *str) {
     if (dev != NULL && str != NULL) {
         USART_Message msg;
         memset(&msg, 0, sizeof(USART_Message));
 
-        msg.cmd = CMD_SET_PARAM;
+        msg.cmd = cmd; // Dinamis berdasarkan input parameter
         msg.len = strlen(str);
 
         if (msg.len > sizeof(msg.payload)) {

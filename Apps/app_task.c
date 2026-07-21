@@ -3,6 +3,7 @@
  *
  * Created on: 3 Jul 2026
  * Author: ferry
+ * Refactored: Integrasi QueueSet, Urutan Booting EEPROM, dan Hapus Race Condition.
  */
 
 #include "app_task.h"
@@ -11,8 +12,12 @@
 #include "flowmeter/flowmeter_driver.h"
 #include "water_lvl/water_lvl_driver.h"
 #include "water_quality/water_quality_driver.h"
+#include "eeprom_wrapper.h"
+#include "config_manager.h"
+#include "config_data.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
 #include <stdio.h>
 
 // --- Abstraksi Perangkat Output Tambahan (Non-Valve) ---
@@ -48,8 +53,14 @@ FlowSensor_t sensor_fert;
 
 extern TIM_HandleTypeDef htim2;
 extern ADC_HandleTypeDef hadc1;
+extern I2C_HandleTypeDef hi2c1;   // Pointer ke I2C untuk EEPROM
 
+// --- Variabel Konteks RTOS ---
+TaskHandle_t appTaskHandle;
 QueueHandle_t appQueue;
+extern QueueHandle_t wtrLvlQueue; // Diambil dari water_lvl_driver.c
+QueueSetHandle_t appQueueSet;     // Untuk mendengarkan banyak Queue sekaligus
+
 static IrrigationState_t currentIrrState = IRR_STATE_IDLE;
 static FertState_t currentFertState = FERT_STATE_IDLE;
 static TickType_t mixing_start_tick = 0;
@@ -105,24 +116,23 @@ void HandleFertilizationRoutine(void) {
                 Valve_Close(VALVE_TANK_IN);
                 FlowSensor_Stop(&sensor_inlet);
 
-                // Siapkan transisi ke tahap berikutnya
                 FlowSensor_ResetVolume(&sensor_fert);
                 currentFertState = FERT_STATE_ISI_PUPUK;
             }
             break;
 
         case FERT_STATE_ISI_PUPUK: // --- TAHAP 2: Pengisian Pupuk Komponen ---
-            Valve_Open(VALVE_PUPUK_1);    // Pilih jenis pupuk sesuai jadwal
+            Valve_Open(VALVE_PUPUK_1);
             PUMP_FERT_ON();
             FlowSensor_Start(&sensor_fert);
 
-            // SAFETY INTERLOCK: Berhenti jika volume terpenuhi ATAU sensor penuh aktif (overflow prevention)
+            // SAFETY INTERLOCK: Overflow prevention
             if (FlowSensor_GetVolume(&sensor_fert) >= TARGET_VOL_PUPUK || isWtrLvl_Full()) {
                 Valve_Close(VALVE_PUPUK_1);
                 PUMP_FERT_OFF();
                 FlowSensor_Stop(&sensor_fert);
 
-                mixing_start_tick = xTaskGetTickCount(); // Catat waktu awal mixing
+                mixing_start_tick = xTaskGetTickCount();
                 currentFertState = FERT_STATE_MIXING;
             }
             break;
@@ -131,14 +141,12 @@ void HandleFertilizationRoutine(void) {
             MIXER_ON();
             wq = WaterQuality_GetData();
 
-            // Logika Koreksi Dinamis: Jika larutan terlalu pekat, encerkan kembali dengan air bersih
             if (wq.ec_val > TARGET_EC_MAX && !isWtrLvl_Full()) {
                 Valve_Open(VALVE_TANK_IN);
             } else {
                 Valve_Close(VALVE_TANK_IN);
             }
 
-            // Validasi Software Timer Waktu Aduk Non-Blocking
             if ((xTaskGetTickCount() - mixing_start_tick) >= pdMS_TO_TICKS(MIXING_DURATION_MS)) {
                 MIXER_OFF();
                 Valve_Close(VALVE_TANK_IN);
@@ -152,7 +160,6 @@ void HandleFertilizationRoutine(void) {
             PUMP_OUT_ON();
             FlowSensor_Start(&sensor_outlet);
 
-            // CRITICAL SAFETY: Matikan pompa jika volume target tercapai ATAU tangki sudah kosong kering
             if (FlowSensor_GetVolume(&sensor_outlet) >= TARGET_VOL_IRIGASI_FERT || isWtrLvl_Empty()) {
                 PUMP_OUT_OFF();
                 FlowSensor_Stop(&sensor_outlet);
@@ -166,7 +173,6 @@ void HandleFertilizationRoutine(void) {
             break;
 
         case FERT_STATE_SAFETY_ERR:
-            // Mode Proteksi Kegagalan: Amankan semua aktuator ke posisi mati
             Valve_Init();
             PUMP_OUT_OFF();
             PUMP_FERT_OFF();
@@ -181,42 +187,60 @@ void HandleFertilizationRoutine(void) {
 // ==================================================================
 static void vTaskApp(void *pvParameters) {
     CommandEvent evt;
+    WtrLvl_Event_t wtrEvt;
 
-    // --- Inisialisasi Seluruh Lapisan Driver Periferal ---
+    // --- 1. Inisialisasi Seluruh Lapisan Hardware & Driver ---
     Valve_Init();
     WtrLvl_Init();
     WaterQuality_Init(&hadc1);
 
-    // Mendaftarkan pin hardware ke tabel pemetaan O(1) Input Capture Timer 2
-    FlowSensor_Init(&sensor_inlet, 450, &htim2, TIM_CHANNEL_1);
-    FlowSensor_Init(&sensor_outlet, 450, &htim2, TIM_CHANNEL_2);
-    FlowSensor_Init(&sensor_fert, 450, &htim2, TIM_CHANNEL_3);
+    // --- 2. Load Data EEPROM MENCEGAH DIVIDE BY ZERO ---
+    EEPROM_Init(0x57, &EEPROM_Ctx, &hi2c1);
+    ConfigManager_Init(&EEPROM_Ctx);
+
+    // --- 3. Mendaftarkan sensor dengan Data Kalibrasi yang aman (sys_calib) ---
+    FlowSensor_Init(&sensor_inlet, sys_calib.fm_inlet_pulse_per_liter, &htim2, TIM_CHANNEL_1);
+    FlowSensor_Init(&sensor_outlet, sys_calib.fm_outlet_pulse_per_liter, &htim2, TIM_CHANNEL_2);
+    FlowSensor_Init(&sensor_fert, sys_calib.fm_fert_pulse_per_liter, &htim2, TIM_CHANNEL_3);
 
     printf("[APP] Smart Garden OS Awal Booting Berhasil.\n");
 
-    for (;;) {
-        // Blokir task maksimal selama 50ms untuk mendengarkan event Queue
-        if (xQueueReceive(appQueue, &evt, pdMS_TO_TICKS(50))) {
-            switch (evt.type) {
-                case EVENT_TYPE_TRIGGER_IRRIG:
-                    if (currentIrrState == IRR_STATE_IDLE) currentIrrState = IRR_STATE_START;
-                    break;
-                case EVENT_TYPE_TRIGGER_FERT:
-                    if (currentFertState == FERT_STATE_IDLE) currentFertState = FERT_STATE_ISI_AIR;
-                    break;
+    // --- 4. Setup Queue Set (Mendengarkan Perintah Command & Interupsi Sensor Air) ---
+    appQueueSet = xQueueCreateSet(15);
+    xQueueAddToSet(appQueue, appQueueSet);
+    xQueueAddToSet(wtrLvlQueue, appQueueSet);
 
-                default:
-                    break;
+    for (;;) {
+        // Blokir task maksimal 50ms (Lebih hemat CPU ketimbang delay biasa)
+        QueueSetMemberHandle_t activatedQueue = xQueueSelectFromSet(appQueueSet, pdMS_TO_TICKS(50));
+
+        if (activatedQueue == appQueue) {
+            // Event dari komunikasi luar (UART/Bluetooth)
+            if (xQueueReceive(appQueue, &evt, 0)) {
+                switch (evt.type) {
+                    case EVENT_TYPE_TRIGGER_IRRIG:
+                        if (currentIrrState == IRR_STATE_IDLE) currentIrrState = IRR_STATE_START;
+                        break;
+                    case EVENT_TYPE_TRIGGER_FERT:
+                        if (currentFertState == FERT_STATE_IDLE) currentFertState = FERT_STATE_ISI_AIR;
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+        else if (activatedQueue == wtrLvlQueue) {
+            // Event Interupsi Water Level
+            if (xQueueReceive(wtrLvlQueue, &wtrEvt, 0)) {
+                printf("[APP] Tangki Alert: Sensor %d berubah status = %d\n", wtrEvt.sensor, wtrEvt.is_reached);
+                // Anda bisa menyambungkan ke currentFertState = FERT_STATE_SAFETY_ERR; jika perlu
             }
         }
 
-        // --- Sinkronisasi Nilai Sensor Berkelanjutan (Non-Blocking) ---
-        FlowSensor_Read(&sensor_inlet);
-        FlowSensor_Read(&sensor_outlet);
-        FlowSensor_Read(&sensor_fert);
+        // --- 5. Evaluasi Nilai Sinkronisasi DMA (Non-Blocking) ---
         WaterQuality_ProcessAnalog();
 
-        // --- Siklus FSM Utama yang Dievaluasi Tiap 50ms ---
+        // --- 6. Evaluasi Mesin Status FSM Utama ---
         HandleIrrigationRoutine();
         HandleFertilizationRoutine();
     }
@@ -224,5 +248,6 @@ static void vTaskApp(void *pvParameters) {
 
 void APP_TaskCreate(UBaseType_t priority) {
     appQueue = xQueueCreate(10, sizeof(CommandEvent));
-    xTaskCreate(vTaskApp, "AppTask", 512, NULL, priority, NULL);
+    // Kita menampung TaskHandle_t di appTaskHandle agar bisa dipanggil notifikasinya dari driver lain
+    xTaskCreate(vTaskApp, "AppTask", 1024, NULL, priority, &appTaskHandle);
 }

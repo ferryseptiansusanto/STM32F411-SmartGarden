@@ -28,6 +28,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "temperature/temp_driver.h"
 #include "flowmeter/flowmeter_driver.h"
 #include "ds3231_wrapper.h"
 #include "eeprom_wrapper.h"

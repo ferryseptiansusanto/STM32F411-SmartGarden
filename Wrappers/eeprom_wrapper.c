@@ -18,8 +18,6 @@
 #include "task.h"
 #include <stdio.h>
 
-I2C_EEPROMDevice EEPROM_Ctx;
-
 void EEPROM_Init(uint16_t dev_addr, I2C_EEPROMDevice *dev, I2C_Context *ctx) {
     dev->ctx = ctx;
     dev->address = dev_addr<<1;

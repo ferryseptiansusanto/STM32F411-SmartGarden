@@ -1,14 +1,14 @@
-/*
- * app_task.c
- *
- * Created on: 3 Jul 2026
- * Author: ferry
- * Refactored: Integrasi QueueSet, Urutan Booting EEPROM, dan Hapus Race Condition.
+/**
+ * @file    app_task.c
+ * @brief   Modul Task Utama Aplikasi (State Machine) untuk Smart Garden
+ * @author  ferry
+ * @date    3 Jul 2026
+ * @note    Refactored: Perbaikan Integrasi Non-Blocking QueueSet, Task Notification ADC,
+ * serta Pembacaan Flowmeter Berkelanjutan.
  */
 
 #include "app_task.h"
-#include "valve/valve_driver.h"
-#include "mixer/mixer_driver.h"
+#include "actuator/actuator_driver.h"
 #include "flowmeter/flowmeter_driver.h"
 #include "water_lvl/water_lvl_driver.h"
 #include "water_quality/water_quality_driver.h"
@@ -19,14 +19,6 @@
 #include "task.h"
 #include "queue.h"
 #include <stdio.h>
-
-// --- Abstraksi Perangkat Output Tambahan (Non-Valve) ---
-#define PUMP_OUT_ON()    HAL_GPIO_WritePin(GPIOB, PUMP_OUT_Pin, GPIO_PIN_SET)
-#define PUMP_OUT_OFF()   HAL_GPIO_WritePin(GPIOB, PUMP_OUT_Pin, GPIO_PIN_RESET)
-#define PUMP_FERT_ON()   HAL_GPIO_WritePin(GPIOB, PUMP_FERT_Pin, GPIO_PIN_SET)
-#define PUMP_FERT_OFF()  HAL_GPIO_WritePin(GPIOB, PUMP_FERT_Pin, GPIO_PIN_RESET)
-#define MIXER_ON()       HAL_GPIO_WritePin(GPIOB, MIXER_Pin, GPIO_PIN_SET)
-#define MIXER_OFF()      HAL_GPIO_WritePin(GPIOB, MIXER_Pin, GPIO_PIN_RESET)
 
 // --- Definisi Alur Struktur State Machine ---
 typedef enum {
@@ -53,7 +45,6 @@ FlowSensor_t sensor_fert;
 
 extern TIM_HandleTypeDef htim2;
 extern ADC_HandleTypeDef hadc1;
-extern I2C_HandleTypeDef hi2c1;   // Pointer ke I2C untuk EEPROM
 
 // --- Variabel Konteks RTOS ---
 TaskHandle_t appTaskHandle;
@@ -65,42 +56,47 @@ static IrrigationState_t currentIrrState = IRR_STATE_IDLE;
 static FertState_t currentFertState = FERT_STATE_IDLE;
 static TickType_t mixing_start_tick = 0;
 
-// ==================================================================
-// 1. STATE MACHINE: LOGIKA IRIGASI RUTIN (NON-BLOCKING)
-// ==================================================================
+/**
+ * @brief   Menangani FSM (Finite State Machine) untuk proses irigasi rutin.
+ * @details Mengeksekusi penyiraman berdasarkan target volume air (TARGET_VOL_IRIGASI).
+ * Berjalan secara non-blocking sehingga tugas lain di RTOS tidak terganggu.
+ */
 void HandleIrrigationRoutine(void) {
     switch (currentIrrState) {
         case IRR_STATE_IDLE:
             break;
 
         case IRR_STATE_START:
+            // Persiapan irigasi: reset perhitungan volume dan nyalakan aktuator
             FlowSensor_ResetVolume(&sensor_outlet);
-            Valve_Open(VALVE_WATER_IN);
-            PUMP_OUT_ON();
+            Actuator_SetState(ACT_VALVE_WATER_IN, ACT_ON);
+            Actuator_SetState(ACT_PUMP_OUT, ACT_ON);
             FlowSensor_Start(&sensor_outlet);
             currentIrrState = IRR_STATE_WATERING;
             break;
 
         case IRR_STATE_WATERING:
-            // Pantau terus volume outlet hingga target tercapai
+            // MENGAPA: Evaluasi volume dilakukan terus menerus di state ini.
+            // Karena fungsi pembaca flowmeter dipanggil di luar switch-case ini, nilai volume akan selalu terupdate.
             if (FlowSensor_GetVolume(&sensor_outlet) >= TARGET_VOL_IRIGASI) {
-                Valve_Close(VALVE_WATER_IN);
-                PUMP_OUT_OFF();
+                Actuator_SetState(ACT_VALVE_WATER_IN, ACT_OFF);
+                Actuator_SetState(ACT_PUMP_OUT, ACT_OFF);
                 FlowSensor_Stop(&sensor_outlet);
                 currentIrrState = IRR_STATE_DONE;
             }
             break;
 
         case IRR_STATE_DONE:
-            printf("[FSM] Irigasi Rutin Selesai 100%.\n");
+            printf("[FSM] Irigasi Rutin Selesai 100%%.\n");
             currentIrrState = IRR_STATE_IDLE;
             break;
     }
 }
 
-// ==================================================================
-// 2. STATE MACHINE: LOGIKA PEMUPUKAN 4 TAHAP + SAFETY
-// ==================================================================
+/**
+ * @brief   Menangani FSM Pemupukan 4 Tahap beserta proteksi keamanannya.
+ * @details Sekuensial pencampuran pupuk: Isi Air -> Isi Pupuk -> Mixing & Koreksi -> Pembuangan.
+ */
 void HandleFertilizationRoutine(void) {
     WaterQualityData_t wq;
 
@@ -109,11 +105,11 @@ void HandleFertilizationRoutine(void) {
             break;
 
         case FERT_STATE_ISI_AIR: // --- TAHAP 1: Pengisian Air Pengencer ---
-            Valve_Open(VALVE_TANK_IN);
+        	Actuator_SetState(ACT_VALVE_TANK_IN, ACT_ON);
             FlowSensor_Start(&sensor_inlet);
 
             if (FlowSensor_GetVolume(&sensor_inlet) >= TARGET_VOL_AIR_PENGENCER) {
-                Valve_Close(VALVE_TANK_IN);
+            	Actuator_SetState(ACT_VALVE_TANK_IN, ACT_OFF);
                 FlowSensor_Stop(&sensor_inlet);
 
                 FlowSensor_ResetVolume(&sensor_fert);
@@ -122,14 +118,15 @@ void HandleFertilizationRoutine(void) {
             break;
 
         case FERT_STATE_ISI_PUPUK: // --- TAHAP 2: Pengisian Pupuk Komponen ---
-            Valve_Open(VALVE_PUPUK_1);
-            PUMP_FERT_ON();
+        	Actuator_SetState(ACT_VALVE_FERT_1, ACT_ON);
+        	Actuator_SetState(ACT_PUMP_FERT, ACT_ON);
             FlowSensor_Start(&sensor_fert);
 
-            // SAFETY INTERLOCK: Overflow prevention
+            // MENGAPA SAFETY INTERLOCK: Mencegah pupuk meluber jika sensor flowmeter rusak
+            // atau target volume melebihi kapasitas fisik tangki.
             if (FlowSensor_GetVolume(&sensor_fert) >= TARGET_VOL_PUPUK || isWtrLvl_Full()) {
-                Valve_Close(VALVE_PUPUK_1);
-                PUMP_FERT_OFF();
+            	Actuator_SetState(ACT_VALVE_FERT_1, ACT_OFF);
+            	Actuator_SetState(ACT_PUMP_FERT, ACT_OFF);
                 FlowSensor_Stop(&sensor_fert);
 
                 mixing_start_tick = xTaskGetTickCount();
@@ -137,19 +134,20 @@ void HandleFertilizationRoutine(void) {
             }
             break;
 
-        case FERT_STATE_MIXING: // --- TAHAP 3: Pengadukan & Koreksi Parameter ---
-            MIXER_ON();
+        case FERT_STATE_MIXING: // --- TAHAP 3: Pengadukan & Koreksi Parameter Kimia ---
+            Actuator_SetState(ACT_MIXER, ACT_ON);
             wq = WaterQuality_GetData();
 
+            // Koreksi EC dengan menambahkan air tawar jika kepekatan berlebih
             if (wq.ec_val > TARGET_EC_MAX && !isWtrLvl_Full()) {
-                Valve_Open(VALVE_TANK_IN);
+                Actuator_SetState(ACT_VALVE_TANK_IN, ACT_ON);
             } else {
-                Valve_Close(VALVE_TANK_IN);
+                Actuator_SetState(ACT_VALVE_TANK_IN, ACT_OFF);
             }
 
             if ((xTaskGetTickCount() - mixing_start_tick) >= pdMS_TO_TICKS(MIXING_DURATION_MS)) {
-                MIXER_OFF();
-                Valve_Close(VALVE_TANK_IN);
+                Actuator_SetState(ACT_MIXER, ACT_OFF);
+                Actuator_SetState(ACT_VALVE_TANK_IN, ACT_OFF);
 
                 FlowSensor_ResetVolume(&sensor_outlet);
                 currentFertState = FERT_STATE_BUANG;
@@ -157,11 +155,12 @@ void HandleFertilizationRoutine(void) {
             break;
 
         case FERT_STATE_BUANG: // --- TAHAP 4: Pembuangan ke Distribusi Irigasi ---
-            PUMP_OUT_ON();
+            Actuator_SetState(ACT_PUMP_OUT, ACT_ON);
             FlowSensor_Start(&sensor_outlet);
 
+            // Berhenti membuang jika target tercapai ATAU jika tangki sudah benar-benar kosong (proteksi pompa kering)
             if (FlowSensor_GetVolume(&sensor_outlet) >= TARGET_VOL_IRIGASI_FERT || isWtrLvl_Empty()) {
-                PUMP_OUT_OFF();
+            	Actuator_SetState(ACT_PUMP_OUT, ACT_OFF);
                 FlowSensor_Stop(&sensor_outlet);
                 currentFertState = FERT_STATE_DONE;
             }
@@ -173,32 +172,27 @@ void HandleFertilizationRoutine(void) {
             break;
 
         case FERT_STATE_SAFETY_ERR:
-            Valve_Init();
-            PUMP_OUT_OFF();
-            PUMP_FERT_OFF();
-            MIXER_OFF();
+            // Fail-safe mode: Matikan paksa seluruh perangkat
+        	Actuator_Init();
             currentFertState = FERT_STATE_IDLE;
             break;
     }
 }
 
-// ==================================================================
-// 3. TASK UTAMA KONTROL SISTEM FreeRTOS
-// ==================================================================
+/**
+ * @brief   Task RTOS Utama (Otak dari Smart Garden).
+ * @param   pvParameters Parameter opsional bawaan FreeRTOS (tidak digunakan).
+ */
 static void vTaskApp(void *pvParameters) {
     CommandEvent evt;
     WtrLvl_Event_t wtrEvt;
 
     // --- 1. Inisialisasi Seluruh Lapisan Hardware & Driver ---
-    Valve_Init();
+    Actuator_Init();
     WtrLvl_Init();
     WaterQuality_Init(&hadc1);
 
-    // --- 2. Load Data EEPROM MENCEGAH DIVIDE BY ZERO ---
-    EEPROM_Init(0x57, &EEPROM_Ctx, &hi2c1);
-    ConfigManager_Init(&EEPROM_Ctx);
-
-    // --- 3. Mendaftarkan sensor dengan Data Kalibrasi yang aman (sys_calib) ---
+    // --- 3. Mendaftarkan sensor dengan Data Kalibrasi yang aman dari (sys_calib) ---
     FlowSensor_Init(&sensor_inlet, sys_calib.fm_inlet_pulse_per_liter, &htim2, TIM_CHANNEL_1);
     FlowSensor_Init(&sensor_outlet, sys_calib.fm_outlet_pulse_per_liter, &htim2, TIM_CHANNEL_2);
     FlowSensor_Init(&sensor_fert, sys_calib.fm_fert_pulse_per_liter, &htim2, TIM_CHANNEL_3);
@@ -211,8 +205,9 @@ static void vTaskApp(void *pvParameters) {
     xQueueAddToSet(wtrLvlQueue, appQueueSet);
 
     for (;;) {
-        // Blokir task maksimal 50ms (Lebih hemat CPU ketimbang delay biasa)
-        QueueSetMemberHandle_t activatedQueue = xQueueSelectFromSet(appQueueSet, pdMS_TO_TICKS(50));
+        // PERBAIKAN 2: Menggunakan timeout 0 (Non-Blocking) agar tidak memblokir Task Notification
+        // yang ditembakkan secara zero-latency oleh Interupsi DMA ADC Kualitas Air.
+        QueueSetMemberHandle_t activatedQueue = xQueueSelectFromSet(appQueueSet, 0);
 
         if (activatedQueue == appQueue) {
             // Event dari komunikasi luar (UART/Bluetooth)
@@ -233,21 +228,43 @@ static void vTaskApp(void *pvParameters) {
             // Event Interupsi Water Level
             if (xQueueReceive(wtrLvlQueue, &wtrEvt, 0)) {
                 printf("[APP] Tangki Alert: Sensor %d berubah status = %d\n", wtrEvt.sensor, wtrEvt.is_reached);
-                // Anda bisa menyambungkan ke currentFertState = FERT_STATE_SAFETY_ERR; jika perlu
+
+                // Jika sedang buang pupuk dan air habis, paksa pompa mati untuk proteksi Dry-Run
+                if(wtrEvt.sensor == LVL_TANK_EMPTY && wtrEvt.is_reached) {
+                    if (currentFertState == FERT_STATE_BUANG || currentFertState == FERT_STATE_MIXING) {
+                         currentFertState = FERT_STATE_SAFETY_ERR;
+                         printf("[APP] FATAL ERROR: Tangki kosong sebelum siklus selesai!\n");
+                    }
+                }
             }
         }
 
-        // --- 5. Evaluasi Nilai Sinkronisasi DMA (Non-Blocking) ---
+        // --- 5. Evaluasi Nilai Sinkronisasi DMA Kualitas Air ---
+        // Jika ada Task Notification dari DMA, maka akan di proses seketika
         WaterQuality_ProcessAnalog();
+
+        // --- PERBAIKAN 1: Wajib Membaca Pulsa Flowmeter ---
+        // MENGAPA: Tanpa fungsi ini, pulsa interupsi tidak akan pernah dikonversi
+        // ke dalam Liter (Volume). Fungsi ini krusial agar FSM tidak macet.
+        FlowSensor_Read(&sensor_inlet);
+        FlowSensor_Read(&sensor_outlet);
+        FlowSensor_Read(&sensor_fert);
 
         // --- 6. Evaluasi Mesin Status FSM Utama ---
         HandleIrrigationRoutine();
         HandleFertilizationRoutine();
+
+        // Beri waktu napas (Yielding CPU) untuk OS karena QueueSet diatur 0 ms (Non-Blocking)
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
+/**
+ * @brief   Inisialisasi pembuatan Task App untuk RTOS Kernel
+ * @param   priority Prioritas task ini dalam hierarki OS (semakin besar semakin prioritas)
+ */
 void APP_TaskCreate(UBaseType_t priority) {
     appQueue = xQueueCreate(10, sizeof(CommandEvent));
-    // Kita menampung TaskHandle_t di appTaskHandle agar bisa dipanggil notifikasinya dari driver lain
+    // Kita menampung TaskHandle_t di appTaskHandle agar bisa dipanggil notifikasinya dari driver Kualitas Air
     xTaskCreate(vTaskApp, "AppTask", 1024, NULL, priority, &appTaskHandle);
 }

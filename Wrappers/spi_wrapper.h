@@ -11,7 +11,6 @@
 #define SPI_TIMEOUT_MS 1000
 
 extern SPI_HandleTypeDef hspi1;
-extern SPI_HandleTypeDef hspi2;
 
 typedef enum {
     SPI_OK = 0,

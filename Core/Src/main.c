@@ -28,6 +28,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "spi_wrapper.h"
 #include "temperature/temp_driver.h"
 #include "flowmeter/flowmeter_driver.h"
 #include "ds3231_wrapper.h"
@@ -59,6 +60,7 @@
 /* USER CODE BEGIN PV */
 I2C_RTCDevice DS3231_Ctx;
 I2C_EEPROMDevice Eeprom_Ctx;
+SPI_Context SDCard_Ctx;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -115,7 +117,7 @@ int main(void)
   //Init DS3231
   DS3231_Init(&DS3231_Ctx, &i2c1_ctx);
   EEPROM_Init(0x57, &Eeprom_Ctx, &i2c1_ctx);
-
+  SPI_Init(&SDCard_Ctx);
   /* Validasi dan Load Konfigurasi (Manajer) */
   ConfigManager_Init(&Eeprom_Ctx);
 
@@ -205,13 +207,6 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
     // Lempar sinyal interupsi ini ke driver flowmeter kita
     FlowSensor_ProcessIC(htim);
-}
-
-// Callback ini akan dipicu otomatis ketika DMA selesai menyalin 2 data (PH & TDS)
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
-{
-    // Lempar sinyal eksekusi ke driver kualitas air kita
-    WaterQuality_ADC_Callback(hadc);
 }
 
 /* USER CODE END 4 */

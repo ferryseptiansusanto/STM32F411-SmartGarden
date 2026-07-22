@@ -9,10 +9,9 @@
 
 // Inisialisasi awal. Pastikan cs_port dan cs_pin diisi di main.c nanti sesuai perangkatnya.
 SPI_Context spi1_ctx = { &hspi1, NULL, 0, SPI_MODE_BLOCKING, NULL, NULL, NULL, NULL };
-SPI_Context spi2_ctx = { &hspi2, NULL, 0, SPI_MODE_BLOCKING, NULL, NULL, NULL, NULL };
 
 // Registri dinamis untuk Callback ISR
-static SPI_Context* spi_registry[] = { &spi1_ctx, &spi2_ctx };
+static SPI_Context* spi_registry[] = { &spi1_ctx };
 #define SPI_REGISTRY_COUNT (sizeof(spi_registry) / sizeof(spi_registry[0]))
 
 void SPI_Init(SPI_Context *ctx) {

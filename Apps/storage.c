@@ -184,12 +184,12 @@ StorageStatus_t STORAGE_ReadBlocks(SPI_Context *dev, uint8_t *buff, uint32_t sec
         // Baca 512 byte + CRC
         if (dev->mode == SPI_MODE_DMA) {
 
-            if (SPI_TransmitReceiveBuffer(dev, tx_dummy, buff, SECTOR_SIZE) != SPI_OK) {
+            if (SPI_TransmitReceive(dev, tx_dummy, buff, SECTOR_SIZE) != SPI_OK) {
                 SPI_Unselect_CS(dev);
                 return STORAGE_ERROR;
             }
             uint8_t crc[2] = {0xFF, 0xFF}, crc_tmp[2];
-            SPI_TransmitReceiveBuffer(dev, crc, crc_tmp, 2);
+            SPI_TransmitReceive(dev, crc, crc_tmp, 2);
         } else {
             for (int j = 0; j < SECTOR_SIZE; j++) {
                 if (SPI_TransmitReceive(dev, dummy, &buff[j], 1) != SPI_OK) {
@@ -229,12 +229,12 @@ StorageStatus_t STORAGE_ReadBlocks(SPI_Context *dev, uint8_t *buff, uint32_t sec
 
             // Baca 512 byte + CRC
             if (dev->mode == SPI_MODE_DMA) {
-                if (SPI_TransmitReceiveBuffer(dev, tx_dummy, &buff[i * SECTOR_SIZE], SECTOR_SIZE) != SPI_OK) {
+                if (SPI_TransmitReceive(dev, tx_dummy, &buff[i * SECTOR_SIZE], SECTOR_SIZE) != SPI_OK) {
                     SPI_Unselect_CS(dev);
                     return STORAGE_ERROR;
                 }
                 uint8_t crc[2] = {0xFF, 0xFF}, crc_tmp[2];
-                SPI_TransmitReceiveBuffer(dev, crc, crc_tmp, 2);
+                SPI_TransmitReceive(dev, crc, crc_tmp, 2);
             } else {
                 for (int j = 0; j < SECTOR_SIZE; j++) {
                     if (SPI_TransmitReceive(dev, dummy, &buff[i * SECTOR_SIZE + j], 1) != SPI_OK) {
@@ -257,7 +257,7 @@ StorageStatus_t STORAGE_ReadBlocks(SPI_Context *dev, uint8_t *buff, uint32_t sec
 
     // Kirim dummy clock agar card idle
     uint8_t extra[8] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
-    SPI_TransmitBuffer(dev, extra, sizeof(extra));
+    SPI_Transmit(dev, extra, sizeof(extra));
 
     return STORAGE_OK;
 }
@@ -280,7 +280,7 @@ StorageStatus_t STORAGE_WriteBlocks(SPI_Context *dev, const uint8_t *buff, uint3
 
         // Kirim 512 byte data
         if (dev->mode == SPI_MODE_DMA) {
-            if (SPI_TransmitReceiveBuffer(dev, &buff[0], rx_dummy, SECTOR_SIZE) != SPI_OK) {
+            if (SPI_TransmitReceive(dev, &buff[0], rx_dummy, SECTOR_SIZE) != SPI_OK) {
                 SPI_Unselect_CS(dev); return STORAGE_ERROR;
             }
         } else {
@@ -318,7 +318,7 @@ StorageStatus_t STORAGE_WriteBlocks(SPI_Context *dev, const uint8_t *buff, uint3
 
             // Kirim 512 byte data
             if (dev->mode == SPI_MODE_DMA) {
-                if (SPI_TransmitReceiveBuffer(dev, &buff[i * SECTOR_SIZE], rx_dummy, SECTOR_SIZE) != SPI_OK) {
+                if (SPI_TransmitReceive(dev, &buff[i * SECTOR_SIZE], rx_dummy, SECTOR_SIZE) != SPI_OK) {
                     SPI_Unselect_CS(dev); return STORAGE_ERROR;
                 }
             } else {
@@ -361,7 +361,7 @@ StorageStatus_t STORAGE_WriteBlocks(SPI_Context *dev, const uint8_t *buff, uint3
 
     // Dummy clock agar card idle
     uint8_t extra[8] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
-    SPI_TransmitBuffer(dev, extra, sizeof(extra));
+    SPI_Transmit(dev, extra, sizeof(extra));
 
     return STORAGE_OK;
 }

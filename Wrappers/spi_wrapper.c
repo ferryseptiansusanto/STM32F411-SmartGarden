@@ -76,8 +76,8 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi) {
 }
 
 // --- Transmit ---
-SPI_Status SPI_Transmit(SPI_Context *ctx, const uint8_t *data, uint16_t size) {
-    if (ctx->mode == SPI_MODE_DMA) {
+SPI_Status SPI_Transmit(SPI_Context *ctx, SPI_Mode mode, const uint8_t *data, uint16_t size) {
+    if (mode == SPI_MODE_DMA) {
         if (HAL_SPI_Transmit_DMA(ctx->hspi, (uint8_t *)data, size) != HAL_OK) return SPI_ERROR;
         if (xSemaphoreTake(ctx->tx_sem, pdMS_TO_TICKS(SPI_TIMEOUT_MS)) != pdPASS) return SPI_TIMEOUT;
     } else {
@@ -87,8 +87,8 @@ SPI_Status SPI_Transmit(SPI_Context *ctx, const uint8_t *data, uint16_t size) {
 }
 
 // --- Receive ---
-SPI_Status SPI_Receive(SPI_Context *ctx, uint8_t *data, uint16_t size) {
-    if (ctx->mode == SPI_MODE_DMA) {
+SPI_Status SPI_Receive(SPI_Context *ctx, SPI_Mode mode, uint8_t *data, uint16_t size) {
+    if (mode == SPI_MODE_DMA) {
         if (HAL_SPI_Receive_DMA(ctx->hspi, data, size) != HAL_OK) return SPI_ERROR;
         if (xSemaphoreTake(ctx->rx_sem, pdMS_TO_TICKS(SPI_TIMEOUT_MS)) != pdPASS) return SPI_TIMEOUT;
     } else {
@@ -98,8 +98,8 @@ SPI_Status SPI_Receive(SPI_Context *ctx, uint8_t *data, uint16_t size) {
 }
 
 // --- TransmitReceive ---
-SPI_Status SPI_TransmitReceive(SPI_Context *ctx, const uint8_t *txBuf, uint8_t *rxBuf, uint16_t size) {
-    if (ctx->mode == SPI_MODE_DMA) {
+SPI_Status SPI_TransmitReceive(SPI_Context *ctx, SPI_Mode mode, const uint8_t *txBuf, uint8_t *rxBuf, uint16_t size) {
+    if (mode == SPI_MODE_DMA) {
         if (HAL_SPI_TransmitReceive_DMA(ctx->hspi, (uint8_t *)txBuf, rxBuf, size) != HAL_OK) return SPI_ERROR;
         if (xSemaphoreTake(ctx->txrx_sem, pdMS_TO_TICKS(SPI_TIMEOUT_MS)) != pdPASS) return SPI_TIMEOUT;
     } else {
@@ -109,20 +109,20 @@ SPI_Status SPI_TransmitReceive(SPI_Context *ctx, const uint8_t *txBuf, uint8_t *
 }
 
 // --- CS Control (Dilengkapi Proteksi Mutex) ---
-void SPI_Select_CS(SPI_Context *ctx) {
+void SPI_Select_CS(SPI_Context *ctx, GPIO_TypeDef port, uint16_t pin) {
     // 1. Ambil Mutex. Jika SPI sedang dipakai Task lain, Task ini akan tertidur di sini.
     xSemaphoreTake(ctx->mutex, portMAX_DELAY);
 
     // 2. Jika sukses ambil Mutex, tarik pin CS jadi LOW
-    if(ctx->cs_port != NULL) {
-        HAL_GPIO_WritePin(ctx->cs_port, ctx->cs_pin, GPIO_PIN_RESET);
+    if(port != NULL) {
+        HAL_GPIO_WritePin(port, pin, GPIO_PIN_RESET);
     }
 }
 
-void SPI_Unselect_CS(SPI_Context *ctx) {
+void SPI_Unselect_CS(SPI_Context *ctx, GPIO_TypeDef port, uint16_t pin) {
     // 1. Tarik pin CS kembali ke HIGH (Transaksi selesai)
-    if(ctx->cs_port != NULL) {
-        HAL_GPIO_WritePin(ctx->cs_port, ctx->cs_pin, GPIO_PIN_SET);
+    if(port != NULL) {
+        HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET);
     }
 
     // 2. Kembalikan Mutex agar Task lain bisa memakai jalur SPI

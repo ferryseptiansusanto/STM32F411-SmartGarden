@@ -21,32 +21,39 @@ typedef enum {
 	STORAGE_TIMEOUT
 } StorageStatus_t;
 
-extern SPI_Context SDCard_Ctx;
+typedef struct {
+	SPI_Context *ctx;
+    GPIO_TypeDef cs_port;
+    uint16_t cs_pin;
+    SPI_Mode mode;
+} SPI_StorageDevice;
+
+extern SPI_StorageDevice SDCard_Ctx;
 
 // Initialize STORAGE Device Parameters for SPI
-void STORAGE_Init(SPI_Context *dev);
+void STORAGE_Init(SPI_StorageDevice *dev);
 
 // Initialize SD card over SPI
-StorageStatus_t STORAGE_Init_Cmd_Sequence(SPI_Context *dev);
+StorageStatus_t STORAGE_Init_Cmd_Sequence(SPI_StorageDevice *dev);
 
 // Get current initialization status
-StorageStatus_t STORAGE_GetStatus(SPI_Context *dev);
+StorageStatus_t STORAGE_GetStatus(SPI_StorageDevice *dev);
 
 // Read 'count' sectors starting from 'sector' into buffer
-StorageStatus_t STORAGE_ReadBlocks(SPI_Context *dev, uint8_t *buff, uint32_t sector, uint32_t count);
+StorageStatus_t STORAGE_ReadBlocks(SPI_StorageDevice *dev, uint8_t *buff, uint32_t sector, uint32_t count);
 
 // Write 'count' sectors starting from 'sector' from buffer
-StorageStatus_t STORAGE_WriteBlocks(SPI_Context *dev, const uint8_t *buff, uint32_t sector, uint32_t count);
+StorageStatus_t STORAGE_WriteBlocks(SPI_StorageDevice *dev, const uint8_t *buff, uint32_t sector, uint32_t count);
 
 // Return total sector count (from CSD parsing)
-uint32_t STORAGE_GetSectorCount(SPI_Context *dev);
+uint32_t STORAGE_GetSectorCount(SPI_StorageDevice *dev);
 
-bool STORAGE_IsCardPresent(SPI_Context *dev);
-uint32_t STORAGE_CardSize(SPI_Context *dev);
-uint32_t STORAGE_GetCapacity(SPI_Context *dev);
-uint64_t STORAGE_GetSizeBytes(SPI_Context *dev);
-uint32_t STORAGE_GetSectorCount(SPI_Context *dev);
-bool STORAGE_IsWriteProtected(SPI_Context *dev);
-void STORAGE_Deinit(SPI_Context *dev);
+bool STORAGE_IsCardPresent(SPI_StorageDevice *dev);
+uint32_t STORAGE_CardSize(SPI_StorageDevice *dev);
+uint32_t STORAGE_GetCapacity(SPI_StorageDevice *dev);
+uint64_t STORAGE_GetSizeBytes(SPI_StorageDevice *dev);
+uint32_t STORAGE_GetSectorCount(SPI_StorageDevice *dev);
+bool STORAGE_IsWriteProtected(SPI_StorageDevice *dev);
+void STORAGE_Deinit(SPI_StorageDevice *dev);
 
 #endif /* INC_STORAGE_H_ */

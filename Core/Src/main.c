@@ -29,13 +29,13 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "spi_wrapper.h"
-#include "temperature/temp_driver.h"
-#include "flowmeter/flowmeter_driver.h"
+#include "i2c_wrapper.h"
+#include "uart_wrapper.h"
 #include "ds3231_wrapper.h"
 #include "eeprom_wrapper.h"
+#include "bluetooth_wrapper.h"
 #include "config_manager.h"
-#include "water_quality/water_quality_driver.h"
-
+#include "storage.h"
 #include "app_task.h"
 
 /* USER CODE END Includes */
@@ -60,7 +60,8 @@
 /* USER CODE BEGIN PV */
 I2C_RTCDevice DS3231_Ctx;
 I2C_EEPROMDevice Eeprom_Ctx;
-SPI_Context SDCard_Ctx;
+Bluetooth_Context Bluetooth_Ctx;
+SPI_StorageDevice SDCard_Ctx;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -113,32 +114,18 @@ int main(void)
 
   /* Inisialisasi Wrapper Hardware */
   I2C_Init(&i2c1_ctx);
+  SPI_Init(&spi1_ctx);
+  UART_Init(&uart1_ctx);
 
-  //Init DS3231
+  //Inisialisasi Device Context
   DS3231_Init(&DS3231_Ctx, &i2c1_ctx);
   EEPROM_Init(0x57, &Eeprom_Ctx, &i2c1_ctx);
-  SPI_Init(&SDCard_Ctx);
+  STORAGE_Init(&SDCard_Ctx);
+  BLUETOOTH_Init(&Bluetooth_Ctx, &uart1_ctx);
+
   /* Validasi dan Load Konfigurasi (Manajer) */
   ConfigManager_Init(&Eeprom_Ctx);
 
-  // ========================================================
-  // TAMBAHKAN INISIALISASI DRIVER SENSOR DI SINI
-  // ========================================================
-
-  // 1. Inisialisasi Sensor Kualitas Air (Mengaktifkan DMA ADC)
-  WaterQuality_Init(&hadc1);
-
-  // 2. Inisialisasi Sensor Suhu DS18B20 (Sesuaikan Port & Pin dengan CubeMX Anda)
-  TempSensor_Init(TEMP_GPIO_Port, TEMP_Pin);
-
-  /* 3. Inisialisasi Flowmeter
-   * (Asumsi Anda punya variabel global/extern: FlowSensor_t flow_inlet, flow_outlet, dll)
-   * Contoh untuk 1 Flowmeter:
-   */
-  // FlowSensor_Init(&flow_inlet, sys_calib.fm_inlet_pulse_per_liter, &htim2, TIM_CHANNEL_1);
-  // FlowSensor_Start(&flow_inlet);
-
-  // ========================================================
 
   // 1. Buat Task Utama Aplikasi (otomatis menginisialisasi Queue internal)
   APP_TaskCreate(tskIDLE_PRIORITY + 2);

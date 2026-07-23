@@ -29,10 +29,10 @@ typedef struct {
     uint8_t dma_tx_buffer[128];     // Buffer persisten untuk pengiriman DMA
 } UART_Context;
 
-extern UART_HandleTypeDef huart2;
-extern UART_Context uart2_ctx;
+extern UART_HandleTypeDef huart1;
+extern UART_Context uart1_ctx;
 
-void UART_Init(UART_Context *dev, UART_HandleTypeDef *huart);
+void UART_Init(UART_Context *dev);
 HAL_StatusTypeDef UART_Send(UART_Context *dev, const uint8_t *data, uint16_t len);
 HAL_StatusTypeDef UART_Receive(UART_Context *dev, uint8_t *data, uint16_t len);
 

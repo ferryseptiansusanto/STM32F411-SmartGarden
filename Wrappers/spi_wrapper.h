@@ -25,9 +25,6 @@ typedef enum {
 
 typedef struct {
     SPI_HandleTypeDef *hspi;
-    GPIO_TypeDef *cs_port;
-    uint16_t cs_pin;
-    SPI_Mode mode;
     SemaphoreHandle_t tx_sem;
     SemaphoreHandle_t rx_sem;
     SemaphoreHandle_t txrx_sem;
@@ -35,19 +32,18 @@ typedef struct {
 } SPI_Context;
 
 extern SPI_Context spi1_ctx;
-extern SPI_Context spi2_ctx;
 
 // --- API Wrapper ---
 void SPI_Init(SPI_Context *ctx);
 
 // Transaksi Data (Mendukung 1 byte maupun buffer multi-byte)
-SPI_Status SPI_Transmit(SPI_Context *ctx, const uint8_t *data, uint16_t size);
-SPI_Status SPI_Receive(SPI_Context *ctx, uint8_t *data, uint16_t size);
-SPI_Status SPI_TransmitReceive(SPI_Context *ctx, const uint8_t *txBuf, uint8_t *rxBuf, uint16_t size);
+SPI_Status SPI_Transmit(SPI_Context *ctx, SPI_Mode mode, const uint8_t *data, uint16_t size);
+SPI_Status SPI_Receive(SPI_Context *ctx, SPI_Mode mode, uint8_t *data, uint16_t size);
+SPI_Status SPI_TransmitReceive(SPI_Context *ctx, SPI_Mode mode, const uint8_t *txBuf, uint8_t *rxBuf, uint16_t size);
 
 // CS Control (Dilengkapi dengan otomatisasi Mutex)
-void SPI_Select_CS(SPI_Context *ctx);
-void SPI_Unselect_CS(SPI_Context *ctx);
+void SPI_Select_CS(SPI_Context *ctx, GPIO_TypeDef port, uint16_t pin);
+void SPI_Unselect_CS(SPI_Context *ctx, GPIO_TypeDef port, uint16_t pin);
 
 void SPI_SetSpeed(SPI_Context *ctx, uint32_t prescaler);
 

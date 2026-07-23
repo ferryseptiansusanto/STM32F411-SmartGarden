@@ -12,6 +12,7 @@
 #include "flowmeter/flowmeter_driver.h"
 #include "water_lvl/water_lvl_driver.h"
 #include "water_quality/water_quality_driver.h"
+#include "temperature/temp_driver.h"
 #include "eeprom_wrapper.h"
 #include "config_manager.h"
 #include "config_data.h"
@@ -223,14 +224,31 @@ static void vTaskApp(void *pvParameters) {
     WtrLvl_Event_t wtrEvt;
     TickType_t last_rtc_check = 0;
 
-    /* --- Inisialisasi Device Periferal Bawaan --- */
-    Actuator_Init();
-    WtrLvl_Init();
+    // ========================================================
+    // TAMBAHKAN INISIALISASI DRIVER SENSOR DI SINI
+    // ========================================================
+
+    // 1. Inisialisasi Sensor Kualitas Air (Mengaktifkan DMA ADC)
     WaterQuality_Init(&hadc1);
 
+    // 2. Inisialisasi Sensor Suhu DS18B20 (Sesuaikan Port & Pin dengan CubeMX Anda)
+    TempSensor_Init(TEMP_GPIO_Port, TEMP_Pin);
+
+    // 3. Inisialisasi Flowmeter
     FlowSensor_Init(&sensor_inlet, sys_calib.fm_inlet_pulse_per_liter, &htim2, TIM_CHANNEL_1);
     FlowSensor_Init(&sensor_outlet, sys_calib.fm_outlet_pulse_per_liter, &htim2, TIM_CHANNEL_2);
     FlowSensor_Init(&sensor_fert, sys_calib.fm_fert_pulse_per_liter, &htim2, TIM_CHANNEL_3);
+
+    // 4. Inisialisasi Actuator
+    Actuator_Init();
+
+    // 5. Inisialisasi Water Level
+    WtrLvl_Init();
+
+    // ========================================================
+
+
+
 
     /* --- INITIALIZE JADWAL FILE SD CARD --- */
     /* Mengisi list struktur RAM dari arsip penyimpanan SD Card saat booting pertama kali */

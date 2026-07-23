@@ -15,10 +15,10 @@
 #define UART_TIMEOUT_MS 1000
 
 // Inisialisasi struktur konteks default untuk USART2
-UART_Context uart2_ctx = { &huart2, NULL, NULL, NULL, {0}, {0} };
+UART_Context uart1_ctx = { &huart1, NULL, NULL, NULL, {0}, {0} };
 
 // Registry dinamis untuk manajemen callback interupsi multi-instance UART
-static UART_Context* uart_registry[] = { &uart2_ctx };
+static UART_Context* uart_registry[] = { &uart1_ctx };
 #define UART_REGISTRY_COUNT (sizeof(uart_registry) / sizeof(uart_registry[0]))
 
 /**
@@ -26,10 +26,9 @@ static UART_Context* uart_registry[] = { &uart2_ctx };
  * @param  dev    Pointer ke konteks UART_Context target.
  * @param  huart  Pointer ke handle HAL UART bawaan CubeMX.
  */
-void UART_Init(UART_Context *dev, UART_HandleTypeDef *huart) {
-    if (dev == NULL || huart == NULL) return;
+void UART_Init(UART_Context *dev) {
+    if (dev == NULL || dev->huart == NULL) return;
 
-    dev->huart = huart;
     dev->tx_sem = xSemaphoreCreateBinary();
     dev->tx_mutex = xSemaphoreCreateMutex(); // Mutex pengaman tabrakan antar-task
     dev->rx_msg_buf = xMessageBufferCreate(UART_MSG_BUFFER_SIZE);

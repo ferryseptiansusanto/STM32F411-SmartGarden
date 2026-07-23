@@ -52,6 +52,6 @@ uint32_t STORAGE_GetCapacity(SPI_StorageDevice *dev);
 uint64_t STORAGE_GetSizeBytes(SPI_StorageDevice *dev);
 uint32_t STORAGE_GetSectorCount(SPI_StorageDevice *dev);
 bool STORAGE_IsWriteProtected(SPI_StorageDevice *dev);
-void STORAGE_Deinit(SPI_StorageDevice *dev);
+void STORAGE_Deinit();
 
 #endif /* INC_STORAGE_H_ */

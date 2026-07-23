@@ -44,7 +44,7 @@ SPI_Status SPI_TransmitReceive(SPI_Context *ctx, SPI_Mode mode, const uint8_t *t
 // CS Control (Dilengkapi dengan otomatisasi Mutex)
 void SPI_Select_CS(SPI_Context *ctx, GPIO_TypeDef *port, uint16_t pin);
 void SPI_Unselect_CS(SPI_Context *ctx, GPIO_TypeDef *port, uint16_t pin);
-
+void SPI_SendDummyClocks(SPI_Context *ctx, GPIO_TypeDef *port, uint16_t pin, uint16_t count);
 void SPI_SetSpeed(SPI_Context *ctx, uint32_t prescaler);
 
 #endif // SPI_WRAPPER_H

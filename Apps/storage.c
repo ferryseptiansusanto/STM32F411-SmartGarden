@@ -7,23 +7,19 @@
 #include "spi.h"
 #include "storage.h"
 #include "string.h"
-
 #include "delay.h"
-//#define USE_DMA 1
+
 #define SPI_TIMEOUT_MS 1000
 #define SECTOR_SIZE 512U
 #define STORAGE_MODE SPI_MODE_DMA
+
 static bool card_present = true;
 static uint8_t card_initialized = 0;
-//static uint8_t countFailure=0;
 static uint32_t sector_count = 32768; // contoh kapasitas default, nanti bisa di-update dari CSD
 uint8_t dummy = 0xFF;
 uint8_t token;
 static uint8_t tx_dummy[SECTOR_SIZE] = {0xFF};
 static uint8_t sdhc = 0;
-extern SPI_HandleTypeDef hspi1;
-
-//extern void test_disk_read(void);
 
 void STORAGE_Init(SPI_StorageDevice *dev) {
 //	*dev=spi1_ctx;  //hanya copy perubahan pada spi1_ctx tidak berpengaruh pada dev
@@ -38,10 +34,8 @@ static StorageStatus_t sd_wait_ready(SPI_StorageDevice *dev) {
     uint8_t resp;
     do {
         if (SPI_TransmitReceive(dev->ctx, dev->mode, &dummy, &resp, 1) != SPI_OK) {
-//        	printf("SPI error in wait_ready\r\n");
         	return STORAGE_ERROR;
         }
-//        printf("Timeout wait_ready, last resp=0x%02X\r\n", resp);
         if (resp == 0xFF) return STORAGE_OK;
     } while (GetTick() < timeout);
     return STORAGE_ERROR;
@@ -52,8 +46,10 @@ static uint8_t sd_send_cmd(SPI_StorageDevice *dev, uint8_t cmd, uint32_t arg, ui
     uint8_t buf[6];
     uint8_t response;
     uint16_t retry = 0xFF;
+
     if (card_initialized)
     	if (sd_wait_ready(dev) != STORAGE_OK) return 0xFF;
+
     buf[0] = 0x40 | cmd;
     buf[1] = (uint8_t)(arg >> 24);
     buf[2] = (uint8_t)(arg >> 16);
@@ -79,8 +75,8 @@ StorageStatus_t STORAGE_Init_Cmd_Sequence(SPI_StorageDevice *dev) {
     // Set Speed Low (ClockSpeed/prescaller)
 	SPI_SetSpeed(dev->ctx, SPI_BAUDRATEPRESCALER_128);
 
-    SPI_Unselect_CS(dev->ctx, dev->cs_port, dev->cs_pin);
-    for (int i = 0; i < 10; i++) SPI_Transmit(dev->ctx, dev->mode, &dummy, 1);
+	// [MODULAR & THREAD-SAFE]: Kirim 80 dummy clock (10 byte) dengan CS HIGH via Wrapper
+	SPI_SendDummyClocks(dev->ctx, dev->cs_port, dev->cs_pin, 10);
 
     // CMD0: reset
     SPI_Select_CS(dev->ctx, dev->cs_port, dev->cs_pin);
@@ -90,27 +86,29 @@ StorageStatus_t STORAGE_Init_Cmd_Sequence(SPI_StorageDevice *dev) {
         return STORAGE_ERROR;
     }
     SPI_Unselect_CS(dev->ctx, dev->cs_port, dev->cs_pin);
-    SPI_Transmit(dev->ctx, dev->mode, &dummy,1);
+    //SPI_Transmit(dev->ctx, dev->mode, &dummy,1);
 
     // CMD8: check voltage
     SPI_Select_CS(dev->ctx, dev->cs_port, dev->cs_pin);
 	response = sd_send_cmd(dev, 8, 0x000001AA, 0x87);
 	// baca 4 byte echo-back
 	for (i = 0; i < 4; i++)
-		if (SPI_TransmitReceive(dev->ctx, dev->mode, &dummy, &r7[i], 1) != SPI_OK)
+		if (SPI_TransmitReceive(dev->ctx, dev->mode, &dummy, &r7[i], 1) != SPI_OK){
+			SPI_Unselect_CS(dev->ctx, dev->cs_port, dev->cs_pin);
 			return STORAGE_ERROR;
+		}
+
 
 	SPI_Unselect_CS(dev->ctx, dev->cs_port, dev->cs_pin);
-    SPI_Transmit(dev->ctx, dev->mode, &dummy,1);
     sdhc = 0;
     retry = GetTick() + 1000;
+
     if (response == 0x01 && r7[2] == 0x01 && r7[3] == 0xAA) {
             do {
             	SPI_Select_CS(dev->ctx, dev->cs_port, dev->cs_pin);
             	sd_send_cmd(dev, 55, 0, 0xFF);
                 response = sd_send_cmd(dev, 41, 0x40000000, 0xFF);
                 SPI_Unselect_CS(dev->ctx, dev->cs_port, dev->cs_pin);
-                SPI_Transmit(dev->ctx, dev->mode, &dummy,1);
                 count = GetTick();
             } while (response != 0x00 && count < retry);
 
@@ -120,8 +118,10 @@ StorageStatus_t STORAGE_Init_Cmd_Sequence(SPI_StorageDevice *dev) {
             response = sd_send_cmd(dev, 58, 0, 0xFF);
             uint8_t ocr[4];
             for (i = 0; i < 4; i++)
-        		if (SPI_TransmitReceive(dev->ctx, dev->mode, &dummy, &ocr[i], 1) != SPI_OK)
+        		if (SPI_TransmitReceive(dev->ctx, dev->mode, &dummy, &ocr[i], 1) != SPI_OK) {
+        			SPI_Unselect_CS(dev->ctx, dev->cs_port, dev->cs_pin);
         			return STORAGE_ERROR;
+        		}
             SPI_Unselect_CS(dev->ctx, dev->cs_port, dev->cs_pin);
             if (ocr[0] & 0x40) sdhc = 1;
 	} else {
@@ -130,7 +130,6 @@ StorageStatus_t STORAGE_Init_Cmd_Sequence(SPI_StorageDevice *dev) {
 			sd_send_cmd(dev, 55, 0, 0xFF);
 			response = sd_send_cmd(dev, 41, 0, 0xFF);
 			SPI_Unselect_CS(dev->ctx, dev->cs_port, dev->cs_pin);
-			SPI_Transmit(dev->ctx, dev->mode, &dummy,1);
 		} while (response != 0x00 && GetTick() < retry);
 		if (response != 0x00) return STORAGE_ERROR;
 	}
@@ -570,7 +569,7 @@ bool STORAGE_IsWriteProtected(SPI_StorageDevice *dev) {
     return false;
 }
 
-void STORAGE_Deinit(SPI_StorageDevice *dev) {
+void STORAGE_Deinit() {
     // optional: matikan SPI, release resource
 //	if (countFailure==3) NVIC_SystemReset();
     card_present = true;  // ubah ke false jika menggunakan sdcard dengan PIN Card Present

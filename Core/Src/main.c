@@ -34,6 +34,7 @@
 #include "ds3231_wrapper.h"
 #include "eeprom_wrapper.h"
 #include "bluetooth_wrapper.h"
+#include "flowmeter/flowmeter_driver.h"
 #include "config_manager.h"
 #include "storage.h"
 #include "app_task.h"

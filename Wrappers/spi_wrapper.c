@@ -7,8 +7,10 @@
 #include "delay.h"
 #include <stdio.h>
 
+extern SPI_HandleTypeDef hspi1;
+
 // Inisialisasi awal. Pastikan cs_port dan cs_pin diisi di main.c nanti sesuai perangkatnya.
-SPI_Context spi1_ctx = { &hspi1, NULL, 0, SPI_MODE_BLOCKING, NULL, NULL, NULL, NULL };
+SPI_Context spi1_ctx = { &hspi1, NULL, NULL, NULL, NULL };
 
 // Registri dinamis untuk Callback ISR
 static SPI_Context* spi_registry[] = { &spi1_ctx };
@@ -110,23 +112,46 @@ SPI_Status SPI_TransmitReceive(SPI_Context *ctx, SPI_Mode mode, const uint8_t *t
 
 // --- CS Control (Dilengkapi Proteksi Mutex) ---
 void SPI_Select_CS(SPI_Context *ctx, GPIO_TypeDef *port, uint16_t pin) {
-    // 1. Ambil Mutex. Jika SPI sedang dipakai Task lain, Task ini akan tertidur di sini.
-    xSemaphoreTake(ctx->mutex, portMAX_DELAY);
+	if (ctx == NULL || ctx->mutex == NULL) return;
 
-    // 2. Jika sukses ambil Mutex, tarik pin CS jadi LOW
-    if(port != NULL) {
-        HAL_GPIO_WritePin(port, pin, GPIO_PIN_RESET);
-    }
+	// Ambil Mutex. Jika sedang dipakai task lain, task ini sleep di sini.
+	xSemaphoreTake(ctx->mutex, portMAX_DELAY);
+
+	if (port != NULL) {
+		HAL_GPIO_WritePin(port, pin, GPIO_PIN_RESET); // Active LOW
+	}
 }
 
 void SPI_Unselect_CS(SPI_Context *ctx, GPIO_TypeDef *port, uint16_t pin) {
-    // 1. Tarik pin CS kembali ke HIGH (Transaksi selesai)
-    if(port != NULL) {
-        HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET);
-    }
+	if (ctx == NULL || ctx->mutex == NULL) return;
 
-    // 2. Kembalikan Mutex agar Task lain bisa memakai jalur SPI
-    xSemaphoreGive(ctx->mutex);
+	if (port != NULL) {
+		HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET); // Deassert CS High
+	}
+
+	// SD Card butuh 8 clock pulse (1 byte) setelah CS High untuk melepaskan MISO bus
+	uint8_t dummy = 0xFF;
+	HAL_SPI_Transmit(ctx->hspi, &dummy, 1, 100);
+
+	// Lepas Mutex
+	xSemaphoreGive(ctx->mutex);
+}
+
+void SPI_SendDummyClocks(SPI_Context *ctx, GPIO_TypeDef *port, uint16_t pin, uint16_t count){
+	if (ctx == NULL || ctx->mutex == NULL) return;
+
+	    xSemaphoreTake(ctx->mutex, portMAX_DELAY);
+
+	    if (port != NULL) {
+	        HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET); // Pastikan CS HIGH
+	    }
+
+	    uint8_t dummy = 0xFF;
+	    for (uint16_t i = 0; i < count; i++) {
+	        HAL_SPI_Transmit(ctx->hspi, &dummy, 1, 100);
+	    }
+
+	    xSemaphoreGive(ctx->mutex);
 }
 
 // --- Speed Control ---

@@ -78,7 +78,7 @@ LOG_Status LOG_Close(void) {
 }
 
 LOG_Status LOG_Unmount(void){
-    STORAGE_Deinit(&SDCard_Ctx);
+    STORAGE_Deinit();
 	FRESULT res = f_mount(NULL, "", 0);   // unmount
 	return (res == FR_OK) ? LOG_OK : LOG_ERROR;
 }

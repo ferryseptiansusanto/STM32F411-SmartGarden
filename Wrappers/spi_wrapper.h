@@ -42,8 +42,8 @@ SPI_Status SPI_Receive(SPI_Context *ctx, SPI_Mode mode, uint8_t *data, uint16_t 
 SPI_Status SPI_TransmitReceive(SPI_Context *ctx, SPI_Mode mode, const uint8_t *txBuf, uint8_t *rxBuf, uint16_t size);
 
 // CS Control (Dilengkapi dengan otomatisasi Mutex)
-void SPI_Select_CS(SPI_Context *ctx, GPIO_TypeDef port, uint16_t pin);
-void SPI_Unselect_CS(SPI_Context *ctx, GPIO_TypeDef port, uint16_t pin);
+void SPI_Select_CS(SPI_Context *ctx, GPIO_TypeDef *port, uint16_t pin);
+void SPI_Unselect_CS(SPI_Context *ctx, GPIO_TypeDef *port, uint16_t pin);
 
 void SPI_SetSpeed(SPI_Context *ctx, uint32_t prescaler);
 

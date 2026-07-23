@@ -23,12 +23,10 @@ typedef enum {
 
 typedef struct {
 	SPI_Context *ctx;
-    GPIO_TypeDef cs_port;
+    GPIO_TypeDef *cs_port;
     uint16_t cs_pin;
     SPI_Mode mode;
 } SPI_StorageDevice;
-
-extern SPI_StorageDevice SDCard_Ctx;
 
 // Initialize STORAGE Device Parameters for SPI
 void STORAGE_Init(SPI_StorageDevice *dev);

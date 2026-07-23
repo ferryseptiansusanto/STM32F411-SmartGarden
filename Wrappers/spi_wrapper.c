@@ -109,7 +109,7 @@ SPI_Status SPI_TransmitReceive(SPI_Context *ctx, SPI_Mode mode, const uint8_t *t
 }
 
 // --- CS Control (Dilengkapi Proteksi Mutex) ---
-void SPI_Select_CS(SPI_Context *ctx, GPIO_TypeDef port, uint16_t pin) {
+void SPI_Select_CS(SPI_Context *ctx, GPIO_TypeDef *port, uint16_t pin) {
     // 1. Ambil Mutex. Jika SPI sedang dipakai Task lain, Task ini akan tertidur di sini.
     xSemaphoreTake(ctx->mutex, portMAX_DELAY);
 
@@ -119,7 +119,7 @@ void SPI_Select_CS(SPI_Context *ctx, GPIO_TypeDef port, uint16_t pin) {
     }
 }
 
-void SPI_Unselect_CS(SPI_Context *ctx, GPIO_TypeDef port, uint16_t pin) {
+void SPI_Unselect_CS(SPI_Context *ctx, GPIO_TypeDef *port, uint16_t pin) {
     // 1. Tarik pin CS kembali ke HIGH (Transaksi selesai)
     if(port != NULL) {
         HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET);

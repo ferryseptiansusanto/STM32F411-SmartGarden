@@ -15,7 +15,7 @@
 /* Example: Mapping of physical drive number for each drive */
 #define DEV_MMC		0	/* Map MMC/SD card to physical drive 1 */
 
-extern SPI_Context SDCard_Ctx;
+extern SPI_StorageDevice SDCard_Ctx;
 extern I2C_RTCDevice DS3231_Ctx;
 /*-----------------------------------------------------------------------*/
 /* Get Drive Status                                                      */

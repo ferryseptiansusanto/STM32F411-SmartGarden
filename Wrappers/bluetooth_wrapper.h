@@ -18,7 +18,7 @@ typedef struct {
 extern Bluetooth_Context Bluetooth_Ctx;
 
 // Inisialisasi Bluetooth (hanya murni init physical driver)
-void BLUETOOTH_Init(UART_Context *dev, UART_Context *ctx);
+void BLUETOOTH_Init(Bluetooth_Context *dev, UART_Context *ctx);
 
 // Kirim string (langsung dibungkus ke frame protokol dan dikirim)
 void BLUETOOTH_SendMessage(UART_Context *dev, USART_Command cmd, const char *str);

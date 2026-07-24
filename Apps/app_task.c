@@ -23,6 +23,11 @@
 #include "task.h"
 #include "queue.h"
 #include <stdio.h>
+#include "logger.h"
+
+typedef struct {
+	SPI_StorageDevice *logger;
+} AppParams;
 
 /* --- Definisi Alur Struktur State Machine --- */
 typedef enum {
@@ -41,6 +46,7 @@ typedef enum {
     FERT_STATE_DONE,
     FERT_STATE_SAFETY_ERR
 } FertState_t;
+
 
 /* --- Alokasi Objek Driver Sensor Global --- */
 FlowSensor_t sensor_inlet;
@@ -220,9 +226,15 @@ void HandleFertilizationRoutine(void) {
  */
 static void vTaskApp(void *pvParameters) {
     (void)pvParameters;
+
+    AppParams *params = (AppParams*)pvParameters;
+    SPI_StorageDevice *Logger_Ctx = params->logger;
     CommandEvent evt;
     WtrLvl_Event_t wtrEvt;
     TickType_t last_rtc_check = 0;
+
+    //Initialize FatFs
+    LOG_Init("0:", 0, Logger_Ctx);
 
     // ========================================================
     // TAMBAHKAN INISIALISASI DRIVER SENSOR DI SINI
@@ -325,9 +337,11 @@ static void vTaskApp(void *pvParameters) {
     }
 }
 
-void APP_TaskCreate(UBaseType_t priority) {
+void APP_TaskCreate(UBaseType_t priority, SPI_StorageDevice *Logger_Ctx) {
+	AppParams *params = pvPortMalloc(sizeof(AppParams));
+	params->logger = Logger_Ctx;
     appQueue = xQueueCreate(10, sizeof(CommandEvent));
     if (appQueue != NULL) {
-        xTaskCreate(vTaskApp, "AppTask", 1024, NULL, priority, &appTaskHandle);
+        xTaskCreate(vTaskApp, "AppTask", 1024, params, priority, &appTaskHandle);
     }
 }

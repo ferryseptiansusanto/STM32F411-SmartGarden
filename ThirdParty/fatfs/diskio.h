@@ -9,6 +9,8 @@
 extern "C" {
 #endif
 
+#include "storage.h"
+
 /* Status of Disk Functions */
 typedef BYTE	DSTATUS;
 
@@ -73,5 +75,8 @@ DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff);
 #ifdef __cplusplus
 }
 #endif
+
+
+void disk_register_device(BYTE pdrv, SPI_StorageDevice *dev);
 
 #endif

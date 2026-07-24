@@ -10,8 +10,9 @@
 
 #include "ff.h"
 #include "spi_wrapper.h"
+#include "storage.h"
 #define LOG_Header "Date,Time,Temperature,Current,Voltage\r\n"
-extern SPI_Context SDCard_Ctx;
+extern SPI_StorageDevice SDCard_Ctx;
 // Status hasil operasi
 typedef enum {
     LOG_OK = 0,
@@ -19,7 +20,7 @@ typedef enum {
 } LOG_Status;
 
 // Inisialisasi filesystem
-LOG_Status LOG_Init(void);
+LOG_Status LOG_Init(const char* drive_path, BYTE pdrv, SPI_StorageDevice *dev);
 
 LOG_Status LOG_Open(const char *filename);
 
@@ -45,9 +46,6 @@ LOG_Status LOG_CreateHeader(void);
 LOG_Status LOG_Close(void);
 
 // Unmount Drive
-LOG_Status LOG_Unmount(void);
-
-// Example
-void LOG_Example(void);
+LOG_Status LOG_Unmount(const char* drive_path, BYTE pdrv);
 
 #endif /* INC_LOGGER_H_ */

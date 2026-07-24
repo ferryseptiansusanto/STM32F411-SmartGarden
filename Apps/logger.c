@@ -11,12 +11,25 @@
 #include <stdio.h>
 #include "storage.h"
 #include "delay.h"
-static FATFS fs;
+#include "diskio.h"
 static FIL file;
 
-LOG_Status LOG_Init(void) {
-	 FRESULT res = f_mount(&fs, "", 1);
-	 return (res == FR_OK) ? LOG_OK : LOG_ERROR;
+// Jika ingin mendukung >1 SD Card menyala bersamaan, ubah menjadi array
+static FATFS SDFatFS[FF_VOLUMES];
+
+LOG_Status LOG_Init(const char* drive_path, BYTE pdrv, SPI_StorageDevice *dev) {
+	if (dev == NULL || pdrv >= FF_VOLUMES) return LOG_ERROR;
+
+	// 1. Suntikkan (Inject) Hardware Context ke lapisan bawah FatFs (diskio.c)
+	disk_register_device(pdrv, dev);
+
+	// 2. Sekarang FatFs tahu siapa yang memegang Drive "pdrv", mari kita mount!
+	// Menit ini FatFs akan memanggil disk_initialize(pdrv) di latar belakang
+	// parameter ke-3 Option 0 - (Delayed Mount / Mount Malas)
+	// Option 1 - (Force Mount / Mount Langsung)
+	FRESULT res = f_mount(&SDFatFS[pdrv], drive_path, 1);
+
+	return (res == FR_OK) ? LOG_OK : LOG_ERROR;
 }
 
 LOG_Status LOG_Open(const char *filename) {
@@ -77,31 +90,15 @@ LOG_Status LOG_Close(void) {
 	return (res == FR_OK) ? LOG_OK : LOG_ERROR;
 }
 
-LOG_Status LOG_Unmount(void){
-    STORAGE_Deinit();
-	FRESULT res = f_mount(NULL, "", 0);   // unmount
-	return (res == FR_OK) ? LOG_OK : LOG_ERROR;
+LOG_Status LOG_Unmount(const char* drive_path, BYTE pdrv){
+	if (pdrv >= FF_VOLUMES) return LOG_ERROR;
+
+	    // 1. Panggil pintu belakang deinit hardware di diskio_ioctl
+	    disk_ioctl(pdrv, CTRL_POWER, NULL);
+
+	    // 2. Unmount software dari RAM
+	    FRESULT res = f_mount(NULL, drive_path, 0);
+
+	    return (res == FR_OK) ? LOG_OK : LOG_ERROR;
 }
 
-void LOG_Example(void) {
-	uint8_t buffer[512];
-	UINT bytesRead;
-
-	// Inisialisasi FatFs
-	if (LOG_Init() == LOG_OK) {
-	  //LOG_Delete("log.csv");
-	  if (LOG_Open("log.csv") == LOG_OK) {
-		  //LOG_Last();
-		  LOG_Append("6") ;
-		  //LOG_Sync();
-		  LOG_Close();
-	  }
-	}
-	// Baca isi file
-	if (LOG_Read("log.csv", (char*)buffer, sizeof(buffer), &bytesRead) == LOG_OK) {
-	  buffer[bytesRead] = '\0'; // null-terminate
-	  printf("Preview File:\r\n%s\n", buffer);
-	} else {
-	  printf("Gagal membaca file log.\n");
-	}
-}

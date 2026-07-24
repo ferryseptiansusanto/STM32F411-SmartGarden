@@ -31,6 +31,7 @@
 #include "spi_wrapper.h"
 #include "i2c_wrapper.h"
 #include "uart_wrapper.h"
+
 #include "ds3231_wrapper.h"
 #include "eeprom_wrapper.h"
 #include "bluetooth_wrapper.h"
@@ -121,15 +122,16 @@ int main(void)
   //Inisialisasi Device Context
   DS3231_Init(&DS3231_Ctx, &i2c1_ctx);
   EEPROM_Init(0x57, &Eeprom_Ctx, &i2c1_ctx);
-  STORAGE_Init(&SDCard_Ctx);
   BLUETOOTH_Init(&Bluetooth_Ctx, &uart1_ctx);
+  // Wajib setelah spi1_ctx diinitialize terlebih dahulu.
+  STORAGE_SetDeviceParameter(&SDCard_Ctx, &spi1_ctx, SPI1_CS_GPIO_Port, SPI1_CS_Pin, SPI_MODE_DMA);
+
 
   /* Validasi dan Load Konfigurasi (Manajer) */
   ConfigManager_Init(&Eeprom_Ctx);
 
-
   // 1. Buat Task Utama Aplikasi (otomatis menginisialisasi Queue internal)
-  APP_TaskCreate(tskIDLE_PRIORITY + 2);
+  APP_TaskCreate(tskIDLE_PRIORITY + 2, &SDCard_Ctx);
   vTaskStartScheduler();
 
   /* USER CODE END 2 */

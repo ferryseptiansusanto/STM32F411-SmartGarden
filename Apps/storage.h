@@ -12,8 +12,6 @@
 #include "stdbool.h"
 #include "stdio.h"
 #include "spi_wrapper.h"
-#define STORAGE_PORT_CS GPIOA
-#define STORAGE_PIN_CS GPIO_PIN_4
 
 typedef enum {
     STORAGE_OK = 0,
@@ -26,13 +24,17 @@ typedef struct {
     GPIO_TypeDef *cs_port;
     uint16_t cs_pin;
     SPI_Mode mode;
+    bool is_card_present;
+    bool is_initialized;
+    bool is_sdhc;
+    uint32_t sector_count;
 } SPI_StorageDevice;
 
 // Initialize STORAGE Device Parameters for SPI
-void STORAGE_Init(SPI_StorageDevice *dev);
+void STORAGE_SetDeviceParameter(SPI_StorageDevice *dev, SPI_Context *ctx, GPIO_TypeDef *port, uint16_t pin, SPI_Mode mode);
 
 // Initialize SD card over SPI
-StorageStatus_t STORAGE_Init_Cmd_Sequence(SPI_StorageDevice *dev);
+StorageStatus_t STORAGE_Init(SPI_StorageDevice *dev);
 
 // Get current initialization status
 StorageStatus_t STORAGE_GetStatus(SPI_StorageDevice *dev);
@@ -52,6 +54,6 @@ uint32_t STORAGE_GetCapacity(SPI_StorageDevice *dev);
 uint64_t STORAGE_GetSizeBytes(SPI_StorageDevice *dev);
 uint32_t STORAGE_GetSectorCount(SPI_StorageDevice *dev);
 bool STORAGE_IsWriteProtected(SPI_StorageDevice *dev);
-void STORAGE_Deinit();
+void STORAGE_Deinit(SPI_StorageDevice *dev);
 
 #endif /* INC_STORAGE_H_ */

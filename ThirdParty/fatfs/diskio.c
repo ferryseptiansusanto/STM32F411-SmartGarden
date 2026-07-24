@@ -17,6 +17,17 @@
 
 extern SPI_StorageDevice SDCard_Ctx;
 extern I2C_RTCDevice DS3231_Ctx;
+
+// [BUKU CATATAN FATFS]: Array untuk menyimpan pointer hardware berdasarkan nomor drive
+static SPI_StorageDevice *disk_devices[FF_VOLUMES] = {NULL};
+
+// Fungsi Injector: Dipanggil sekali di awal untuk mendaftarkan perangkat
+void disk_register_device(BYTE pdrv, SPI_StorageDevice *dev) {
+    if (pdrv < FF_VOLUMES) {
+        disk_devices[pdrv] = dev;
+    }
+}
+
 /*-----------------------------------------------------------------------*/
 /* Get Drive Status                                                      */
 /*-----------------------------------------------------------------------*/
@@ -25,10 +36,11 @@ DSTATUS disk_status (
 	BYTE pdrv		/* Physical drive nmuber to identify the drive */
 )
 {
-    if (pdrv == DEV_MMC) {
-        return (STORAGE_GetStatus(&SDCard_Ctx) == STORAGE_OK) ? 0 : STA_NOINIT;
-    }
-    return STA_NOINIT;
+    if (pdrv >= FF_VOLUMES || disk_devices[pdrv] == NULL) return STA_NOINIT;
+
+	// Cek status inisialisasi dari struct
+	if (!disk_devices[pdrv]->is_initialized) return STA_NOINIT;
+	return 0;
 }
 
 
@@ -41,10 +53,13 @@ DSTATUS disk_initialize (
 	BYTE pdrv				/* Physical drive nmuber to identify the drive */
 )
 {
-    if (pdrv == DEV_MMC) {
-        return (STORAGE_Init_Cmd_Sequence(&SDCard_Ctx) == STORAGE_OK) ? 0 : STA_NOINIT;
-    }
-    return STA_NOINIT;
+    if (pdrv >= FF_VOLUMES || disk_devices[pdrv] == NULL) return STA_NOINIT;
+
+	// Panggil STORAGE_Init milik device yang terdaftar di pdrv ini
+	if (STORAGE_Init(disk_devices[pdrv]) == STORAGE_OK) {
+		return 0; // Berhasil
+	}
+	return STA_NOINIT;
 }
 
 
@@ -60,11 +75,13 @@ DRESULT disk_read (
 	UINT count		/* Number of sectors to read */
 )
 {
-    if (pdrv == DEV_MMC) {
-    	StorageStatus_t stat = STORAGE_ReadBlocks(&SDCard_Ctx, buff, sector, count) ;
-        return (stat== STORAGE_OK) ? RES_OK : RES_ERROR;
-    }
-    return RES_PARERR;
+    if (pdrv >= FF_VOLUMES || disk_devices[pdrv] == NULL) return RES_NOTRDY;
+
+	// FatFs hanya ngasih nomor pdrv, kita terjemahkan ke dev context
+	if (STORAGE_ReadBlocks(disk_devices[pdrv], buff, sector, count) == STORAGE_OK) {
+		return RES_OK;
+	}
+	return RES_ERROR;
 }
 
 
@@ -82,10 +99,12 @@ DRESULT disk_write (
 	UINT count			/* Number of sectors to write */
 )
 {
-    if (pdrv == DEV_MMC) {
-        return (STORAGE_WriteBlocks(&SDCard_Ctx, buff, sector, count) == STORAGE_OK) ? RES_OK : RES_ERROR;
-    }
-    return RES_PARERR;
+	if (pdrv >= FF_VOLUMES || disk_devices[pdrv] == NULL) return RES_NOTRDY;
+
+	if (STORAGE_WriteBlocks(disk_devices[pdrv], (uint8_t*)buff, sector, count) == STORAGE_OK) {
+		return RES_OK;
+	}
+	return RES_ERROR;
 }
 
 #endif
@@ -101,15 +120,35 @@ DRESULT disk_ioctl (
 	void *buff		/* Buffer to send/receive control data */
 )
 {
-    if (pdrv == DEV_MMC) {
-        switch (cmd) {
-        case CTRL_SYNC:         return RES_OK;
-        case GET_SECTOR_SIZE:   *(WORD*)buff = 512; return RES_OK;
-        case GET_BLOCK_SIZE:    *(DWORD*)buff = 1;  return RES_OK;
-        case GET_SECTOR_COUNT:  *(DWORD*)buff = STORAGE_GetSectorCount(&SDCard_Ctx); return RES_OK;
-        }
-    }
-    return RES_PARERR;
+	if (pdrv >= FF_VOLUMES || disk_devices[pdrv] == NULL) return RES_NOTRDY;
+
+	SPI_StorageDevice *dev = disk_devices[pdrv];
+
+	switch (cmd) {
+		case CTRL_SYNC:
+			return RES_OK;
+
+		case GET_SECTOR_COUNT:
+			*(DWORD*)buff = STORAGE_GetSectorCount(dev);
+			return RES_OK;
+
+		case GET_SECTOR_SIZE:
+			*(WORD*)buff = 512;
+			return RES_OK;
+
+		case GET_BLOCK_SIZE:
+			*(DWORD*)buff = 1;
+			return RES_OK;
+
+		case CTRL_POWER: // Pintu Belakang untuk LOG_Unmount
+			if (buff == NULL) {
+				STORAGE_Deinit(dev);
+			}
+			return RES_OK;
+
+		default:
+			return RES_PARERR;
+	}
 }
 
 DWORD get_fattime(void)
@@ -123,3 +162,6 @@ DWORD get_fattime(void)
          | ((DWORD)now.time.minutes << 5)
          | ((DWORD)(now.time.seconds / 2));
 }
+
+
+

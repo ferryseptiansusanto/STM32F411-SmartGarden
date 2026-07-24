@@ -12,6 +12,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
+#include "storage.h"
 
 // --- CONFIGURATION HEADER (Konstanta Target Sistem) ---
 #define TARGET_VOL_IRIGASI          20.0f   // Target irigasi rutin: 20 Liter
@@ -41,7 +42,7 @@ typedef struct {
 extern QueueHandle_t appQueue;
 
 // --- API Publik ---
-void APP_TaskCreate(UBaseType_t priority);
+void APP_TaskCreate(UBaseType_t priority, SPI_StorageDevice *Logger_Ctx);
 void HandleIrrigationRoutine(void);
 void HandleFertilizationRoutine(void);
 

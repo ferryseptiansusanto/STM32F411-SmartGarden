@@ -11,22 +11,22 @@
 
 #define SPI_TIMEOUT_MS 1000
 #define SECTOR_SIZE 512U
-#define STORAGE_MODE SPI_MODE_DMA
 
-static bool card_present = true;
-static uint8_t card_initialized = 0;
-static uint32_t sector_count = 32768; // contoh kapasitas default, nanti bisa di-update dari CSD
 uint8_t dummy = 0xFF;
 uint8_t token;
 static uint8_t tx_dummy[SECTOR_SIZE] = {0xFF};
-static uint8_t sdhc = 0;
 
-void STORAGE_Init(SPI_StorageDevice *dev) {
+
+void STORAGE_SetDeviceParameter(SPI_StorageDevice *dev, SPI_Context *ctx, GPIO_TypeDef *port, uint16_t pin, SPI_Mode mode) {
 //	*dev=spi1_ctx;  //hanya copy perubahan pada spi1_ctx tidak berpengaruh pada dev
-	dev->ctx = &spi1_ctx;
-	dev->cs_pin = STORAGE_PIN_CS;
-	dev->cs_port = STORAGE_PORT_CS;
-	dev->mode = STORAGE_MODE;
+	dev->ctx = ctx;
+	dev->cs_port = port;
+	dev->cs_pin = pin;
+	dev->mode = mode;
+	dev->is_card_present = false;
+	dev->is_initialized = false;
+	dev->is_sdhc = false;
+	dev->sector_count = 32768; // contoh kapasitas default, nanti bisa di-update dari CSD
 }
 
 static StorageStatus_t sd_wait_ready(SPI_StorageDevice *dev) {
@@ -47,7 +47,7 @@ static uint8_t sd_send_cmd(SPI_StorageDevice *dev, uint8_t cmd, uint32_t arg, ui
     uint8_t response;
     uint16_t retry = 0xFF;
 
-    if (card_initialized)
+    if (dev->is_initialized)
     	if (sd_wait_ready(dev) != STORAGE_OK) return 0xFF;
 
     buf[0] = 0x40 | cmd;
@@ -67,7 +67,7 @@ static uint8_t sd_send_cmd(SPI_StorageDevice *dev, uint8_t cmd, uint32_t arg, ui
     return (retry ? response : 0xFF);
 }
 
-StorageStatus_t STORAGE_Init_Cmd_Sequence(SPI_StorageDevice *dev) {
+StorageStatus_t STORAGE_Init(SPI_StorageDevice *dev) {
 	uint8_t i, response;
 	uint32_t retry,count;
 	uint8_t r7[4];
@@ -100,7 +100,9 @@ StorageStatus_t STORAGE_Init_Cmd_Sequence(SPI_StorageDevice *dev) {
 
 
 	SPI_Unselect_CS(dev->ctx, dev->cs_port, dev->cs_pin);
-    sdhc = 0;
+
+	dev->is_sdhc = false;
+
     retry = GetTick() + 1000;
 
     if (response == 0x01 && r7[2] == 0x01 && r7[3] == 0xAA) {
@@ -123,7 +125,7 @@ StorageStatus_t STORAGE_Init_Cmd_Sequence(SPI_StorageDevice *dev) {
         			return STORAGE_ERROR;
         		}
             SPI_Unselect_CS(dev->ctx, dev->cs_port, dev->cs_pin);
-            if (ocr[0] & 0x40) sdhc = 1;
+            if (ocr[0] & 0x40) dev->is_sdhc = true;
 	} else {
 		do {
 			SPI_Select_CS(dev->ctx, dev->cs_port, dev->cs_pin);
@@ -134,25 +136,40 @@ StorageStatus_t STORAGE_Init_Cmd_Sequence(SPI_StorageDevice *dev) {
 		if (response != 0x00) return STORAGE_ERROR;
 	}
 
-    card_initialized = 1;
+    dev->is_initialized = true;
 
     // Set Speed High
 	SPI_SetSpeed(dev->ctx, SPI_BAUDRATEPRESCALER_4);
 
+// [FAIL-SAFE]: Pengecekan Kapasitas dengan Default Value
+	uint32_t real_capacity = STORAGE_GetCapacity(dev);
+
+	if (real_capacity > 0) {
+		// Jika berhasil terbaca, gunakan kapasitas asli dari SD Card
+		dev->sector_count = real_capacity;
+	} else {
+		// [Fallback] Jika gagal baca CSD, gunakan default 16MB (32768 sektor)
+		// Ini mencegah FatFs menerima kapasitas 0 yang bisa menyebabkan error
+		dev->sector_count = 32768;
+
+		// (Opsional) Jika Anda sudah menghubungkan sistem Logger,
+		// Anda bisa memanggil peringatan di sini:
+		// LOGGER_WriteError("SD_CARD", "Gagal baca kapasitas, pakai default.");
+	}
 	return STORAGE_OK;
 }
 
 StorageStatus_t STORAGE_GetStatus(SPI_StorageDevice *dev) {
-    return card_initialized ? STORAGE_OK : STORAGE_ERROR;
+    return dev->is_initialized ? STORAGE_OK : STORAGE_ERROR;
 }
 
 StorageStatus_t STORAGE_ReadBlocks(SPI_StorageDevice *dev, uint8_t *buff, uint32_t sector, uint32_t count) {
 
-    if (!card_initialized) return STORAGE_ERROR;
+    if (!dev->is_initialized) return STORAGE_ERROR;
 
     SPI_Select_CS(dev->ctx, dev->cs_port, dev->cs_pin);
 
-    uint32_t addr = sdhc ? sector : sector * SECTOR_SIZE;
+    uint32_t addr = dev->is_sdhc ? sector : sector * SECTOR_SIZE;
 
     if (count == 1) {
         // --- Single block read (CMD17) ---
@@ -261,13 +278,13 @@ StorageStatus_t STORAGE_ReadBlocks(SPI_StorageDevice *dev, uint8_t *buff, uint32
 
 StorageStatus_t STORAGE_WriteBlocks(SPI_StorageDevice *dev, const uint8_t *buff, uint32_t sector, uint32_t count) {
     static uint8_t rx_dummy[SECTOR_SIZE]; // dummy RX buffer
-    if (!card_initialized) return STORAGE_ERROR;
+    if (!dev->is_initialized) return STORAGE_ERROR;
 
     SPI_Select_CS(dev->ctx, dev->cs_port, dev->cs_pin);
 
     if (count == 1) {
         // --- Single block write (CMD24) ---
-        uint32_t addr = sdhc ? sector : sector * SECTOR_SIZE;
+        uint32_t addr = dev->is_sdhc ? sector : sector * SECTOR_SIZE;
         uint8_t res = sd_send_cmd(dev, 24, addr, 0x01);
         if (res != 0x00) { SPI_Unselect_CS(dev->ctx, dev->cs_port, dev->cs_pin); return STORAGE_ERROR; }
 
@@ -305,7 +322,7 @@ StorageStatus_t STORAGE_WriteBlocks(SPI_StorageDevice *dev, const uint8_t *buff,
 
     } else {
         // --- Multi block write (CMD25) ---
-        uint32_t addr = sdhc ? sector : sector * SECTOR_SIZE;
+        uint32_t addr = dev->is_sdhc ? sector : sector * SECTOR_SIZE;
         uint8_t res = sd_send_cmd(dev, 25, addr, 0x01);
         if (res != 0x00) { SPI_Unselect_CS(dev->ctx, dev->cs_port, dev->cs_pin); return STORAGE_ERROR; }
 
@@ -368,7 +385,8 @@ StorageStatus_t STORAGE_WriteBlocks(SPI_StorageDevice *dev, const uint8_t *buff,
 
 
 uint32_t STORAGE_GetSectorCount(SPI_StorageDevice *dev) {
-    return sector_count; // bisa di-update dari parsing CSD
+	if (!dev->is_initialized) return 0;
+	return dev->sector_count; // Sekarang akan berisi kapasitas riil SD Card
 }
 
 // Baca CID (CMD10)
@@ -560,7 +578,7 @@ void print_card_size(SPI_Context *dev, uint64_t size_bytes) {
 bool STORAGE_IsCardPresent(SPI_StorageDevice *dev) {
     // Membaca dari pin gpio jika sdcard mendukung pin IsCardPresent
     //return (HAL_GPIO_ReadPin(SD_CP_GPIO_Port, SD_CP_Pin) == GPIO_PIN_SET);
-    return card_present;
+    return dev->is_card_present;
 }
 
 bool STORAGE_IsWriteProtected(SPI_StorageDevice *dev) {
@@ -569,12 +587,12 @@ bool STORAGE_IsWriteProtected(SPI_StorageDevice *dev) {
     return false;
 }
 
-void STORAGE_Deinit() {
+void STORAGE_Deinit(SPI_StorageDevice *dev) {
     // optional: matikan SPI, release resource
 //	if (countFailure==3) NVIC_SystemReset();
-    card_present = true;  // ubah ke false jika menggunakan sdcard dengan PIN Card Present
-    card_initialized = 0;
-    sdhc = 0;
+	dev->is_card_present = true;  // ubah ke false jika menggunakan sdcard dengan PIN Card Present
+    dev->is_initialized = false;
+    dev->is_sdhc = false;
 //    countFailure+=1;
 }
 

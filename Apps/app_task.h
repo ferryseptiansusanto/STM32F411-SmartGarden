@@ -42,7 +42,7 @@ typedef struct {
 extern QueueHandle_t appQueue;
 
 // --- API Publik ---
-void APP_TaskCreate(UBaseType_t priority, SPI_StorageDevice *Logger_Ctx);
+void APP_TaskCreate(UBaseType_t priority);
 void HandleIrrigationRoutine(void);
 void HandleFertilizationRoutine(void);
 

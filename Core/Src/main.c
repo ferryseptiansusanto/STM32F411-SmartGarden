@@ -32,12 +32,7 @@
 #include "i2c_wrapper.h"
 #include "uart_wrapper.h"
 
-#include "ds3231_wrapper.h"
-#include "eeprom_wrapper.h"
-#include "bluetooth_wrapper.h"
-#include "flowmeter/flowmeter_driver.h"
-#include "config_manager.h"
-#include "storage.h"
+#include "bluetooth_task.h"
 #include "app_task.h"
 
 /* USER CODE END Includes */
@@ -60,10 +55,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-I2C_RTCDevice DS3231_Ctx;
-I2C_EEPROMDevice Eeprom_Ctx;
-Bluetooth_Context Bluetooth_Ctx;
-SPI_StorageDevice SDCard_Ctx;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -119,19 +111,10 @@ int main(void)
   SPI_Init(&spi1_ctx);
   UART_Init(&uart1_ctx);
 
-  //Inisialisasi Device Context
-  DS3231_Init(&DS3231_Ctx, &i2c1_ctx);
-  EEPROM_Init(0x57, &Eeprom_Ctx, &i2c1_ctx);
-  BLUETOOTH_Init(&Bluetooth_Ctx, &uart1_ctx);
-  // Wajib setelah spi1_ctx diinitialize terlebih dahulu.
-  STORAGE_SetDeviceParameter(&SDCard_Ctx, &spi1_ctx, SPI1_CS_GPIO_Port, SPI1_CS_Pin, SPI_MODE_DMA);
-
-
-  /* Validasi dan Load Konfigurasi (Manajer) */
-  ConfigManager_Init(&Eeprom_Ctx);
-
   // 1. Buat Task Utama Aplikasi (otomatis menginisialisasi Queue internal)
-  APP_TaskCreate(tskIDLE_PRIORITY + 2, &SDCard_Ctx);
+  APP_TaskCreate(tskIDLE_PRIORITY + 2);
+  // 2. Buat Task Bluetooth
+  BLUETOOTH_AppTaskCreate(tskIDLE_PRIORITY + 2, &uart1_ctx);
   vTaskStartScheduler();
 
   /* USER CODE END 2 */

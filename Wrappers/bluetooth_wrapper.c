@@ -17,7 +17,7 @@ extern QueueHandle_t btQueueTx;
 /**
  * @brief  Menginisialisasi abstraksi driver fisik komunikasi Bluetooth.
  */
-void BLUETOOTH_Init(Bluetooth_Context *dev, UART_Context *ctx) {
+void BLUETOOTH_Init(BL_Device *dev, UART_Context *ctx) {
 
 	dev->ctx = ctx;
 

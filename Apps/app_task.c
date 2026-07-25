@@ -7,23 +7,31 @@
  * @date    22 Jul 2026
  */
 
+#include "FreeRTOS.h"
+#include "task.h"
+#include "queue.h"
+#include <stdio.h>
 #include "app_task.h"
+// Include actuator, sensor
 #include "actuator/actuator_driver.h"
 #include "flowmeter/flowmeter_driver.h"
 #include "water_lvl/water_lvl_driver.h"
 #include "water_quality/water_quality_driver.h"
 #include "temperature/temp_driver.h"
+// Include device support
+#include "ds3231_wrapper.h"
 #include "eeprom_wrapper.h"
-#include "config_manager.h"
+#include "storage.h"
+// Include management
 #include "config_data.h"
+#include "config_manager.h"
 #include "recipe_manager.h"
 #include "schedule_manager.h"
-#include "ds3231_wrapper.h"
-#include "FreeRTOS.h"
-#include "task.h"
-#include "queue.h"
-#include <stdio.h>
 #include "logger.h"
+
+I2C_RTCDevice DS3231_Ctx;
+I2C_EEPROMDevice Eeprom_Ctx;
+SPI_StorageDevice SDCard_Ctx;
 
 typedef struct {
 	SPI_StorageDevice *logger;
@@ -227,40 +235,37 @@ void HandleFertilizationRoutine(void) {
 static void vTaskApp(void *pvParameters) {
     (void)pvParameters;
 
-    AppParams *params = (AppParams*)pvParameters;
-    SPI_StorageDevice *Logger_Ctx = params->logger;
+    //AppParams *params = (AppParams*)pvParameters;
+    //SPI_StorageDevice *Logger_Ctx = params->logger;
     CommandEvent evt;
     WtrLvl_Event_t wtrEvt;
     TickType_t last_rtc_check = 0;
 
-    //Initialize FatFs
-    LOG_Init("0:", 0, Logger_Ctx);
-
     // ========================================================
-    // TAMBAHKAN INISIALISASI DRIVER SENSOR DI SINI
+    // TAMBAHKAN INISIALISASI DRIVER SENSOR, RTC, EEPROM, SDCARD  DI SINI
     // ========================================================
-
     // 1. Inisialisasi Sensor Kualitas Air (Mengaktifkan DMA ADC)
     WaterQuality_Init(&hadc1);
-
     // 2. Inisialisasi Sensor Suhu DS18B20 (Sesuaikan Port & Pin dengan CubeMX Anda)
     TempSensor_Init(TEMP_GPIO_Port, TEMP_Pin);
-
     // 3. Inisialisasi Flowmeter
     FlowSensor_Init(&sensor_inlet, sys_calib.fm_inlet_pulse_per_liter, &htim2, TIM_CHANNEL_1);
     FlowSensor_Init(&sensor_outlet, sys_calib.fm_outlet_pulse_per_liter, &htim2, TIM_CHANNEL_2);
     FlowSensor_Init(&sensor_fert, sys_calib.fm_fert_pulse_per_liter, &htim2, TIM_CHANNEL_3);
-
     // 4. Inisialisasi Actuator
     Actuator_Init();
-
     // 5. Inisialisasi Water Level
     WtrLvl_Init();
+    // 6. Initialize Support Device
+    STORAGE_SetDeviceParameter(&SDCard_Ctx, &spi1_ctx, SPI1_CS_GPIO_Port, SPI1_CS_Pin, SPI_MODE_DMA); // Wajib setelah spi1_ctx diinitialize terlebih dahulu.
+    LOG_Init("0:", 0, &SDCard_Ctx); // SDCard_Ctx wajib di set parameter
+    DS3231_Init(&DS3231_Ctx, &i2c1_ctx);
+    EEPROM_Init(0x57, &Eeprom_Ctx, &i2c1_ctx);
 
     // ========================================================
 
-
-
+    /* Validasi dan Load Konfigurasi (Manajer) */
+    ConfigManager_Init(&Eeprom_Ctx);
 
     /* --- INITIALIZE JADWAL FILE SD CARD --- */
     /* Mengisi list struktur RAM dari arsip penyimpanan SD Card saat booting pertama kali */
@@ -337,11 +342,9 @@ static void vTaskApp(void *pvParameters) {
     }
 }
 
-void APP_TaskCreate(UBaseType_t priority, SPI_StorageDevice *Logger_Ctx) {
-	AppParams *params = pvPortMalloc(sizeof(AppParams));
-	params->logger = Logger_Ctx;
+void APP_TaskCreate(UBaseType_t priority){
     appQueue = xQueueCreate(10, sizeof(CommandEvent));
     if (appQueue != NULL) {
-        xTaskCreate(vTaskApp, "AppTask", 1024, params, priority, &appTaskHandle);
+        xTaskCreate(vTaskApp, "AppTask", 1024, NULL, priority, &appTaskHandle);
     }
 }

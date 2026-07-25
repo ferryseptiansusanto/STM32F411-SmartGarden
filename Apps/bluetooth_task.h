@@ -1,30 +1,25 @@
-/*
- * bluetooth_task.h
- *
- * Created on: 2026
- * Author: ferry
- */
-
-
-#ifndef BLUETOOTH_TASK_H_
-#define BLUETOOTH_TASK_H_
+#ifndef BLUETOOTH_TASK_H
+#define BLUETOOTH_TASK_H
 
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
-#include "uart_wrapper.h"
-#include "usart_protocol.h" // Tambahkan ini agar TaskRx mengenali tipe USART_Message
+#include "usart_protocol.h" // Sesuai struktur data Anda
+#include "uart_wrapper.h"   // Untuk UART_Context
 
-// Deklarasi Queue agar bisa diakses extern oleh main.c atau command_task.c
-extern QueueHandle_t btQueueTx;
-extern QueueHandle_t btQueueRx;
-extern QueueHandle_t uartQueue;
+// ---------------------------------------------------------
+// [TIDAK ADA LAGI EXTERN QUEUE DI SINI]
+// Karena queue sudah dienkapsulasi (static) di dalam .c
+// ---------------------------------------------------------
 
-// Fungsi untuk membuat Task dari main.c
-void BLUETOOTH_AppTaskCreate(UART_Context *phy_device);
+// Prototipe Fungsi Pembuat Task (Sudah ditambahkan parameter Queue)
+void BLUETOOTH_AppTaskCreate(UBaseType_t priority, UART_Context *phy_device, QueueHandle_t app_queue);
 
-// Definisi Task RTOS
+// Prototipe Fungsi Task Utama
 void BLUETOOTH_TaskTx(void *pvParameters);
 void BLUETOOTH_TaskRx(void *pvParameters);
 
-#endif /* BLUETOOTH_TASK_H_ */
+// Prototipe Fungsi Pengirim Pesan (Nama diubah agar tidak bentrok dengan wrapper)
+BaseType_t BLUETOOTH_Task_SendMessage(const USART_Message *msg);
+
+#endif /* BLUETOOTH_TASK_H */

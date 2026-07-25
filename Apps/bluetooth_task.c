@@ -12,54 +12,60 @@
 #include "bluetooth_wrapper.h"
 #include <string.h> // Untuk memcpy dan memmove
 
-// Alokasi memori Queue global
-QueueHandle_t btQueueTx = NULL;
-QueueHandle_t btQueueRx = NULL;
+// Konteks dan Handle Queue Internal Modul Bluetooth
+static BL_Device bl_device;
+static QueueHandle_t btQueueTx = NULL;
+static QueueHandle_t btQueueRx = NULL;
 
-// Queue utama milik command_task (FSM Utama)
-extern QueueHandle_t uartQueue;
+// Handle Queue tujuan (FSM Utama / App Task) yang di-passing saat inisialisasi
+static QueueHandle_t systemAppQueue = NULL;
 
 /**
  * @brief  Membuat dan menginisialisasi Task RTOS untuk modul Bluetooth.
+ * @param  priority Prioritas task yang akan di-set.
  * @param  phy_device Pointer ke konteks UART perangkat fisik Bluetooth.
+ * @param  app_queue Handle Queue milik FSM Utama (app_task) untuk meneruskan perintah.
  * @note   Fungsi ini harus dipanggil sebelum osKernelStart().
  */
-void BLUETOOTH_AppTaskCreate(UART_Context *phy_device) {
-    if (phy_device == NULL) return;
+void BLUETOOTH_AppTaskCreate(UBaseType_t priority, UART_Context *phy_device, QueueHandle_t app_queue) {
+    if (phy_device == NULL || app_queue == NULL) return;
 
-    // [PERBAIKAN 1]: Menggunakan sizeof(USART_Message) untuk alokasi
-    // item queue agar ukurannya pas dengan struct protokol, mencegah HardFault.
+    // Simpan referensi queue tujuan secara aman
+    systemAppQueue = app_queue;
+
+    // Inisialisasi Device Context Bluetooth
+    BLUETOOTH_Init(&bl_device, phy_device);
+
+    // Alokasi Queue TX dan RX Internal Bluetooth
     btQueueTx = xQueueCreate(10, sizeof(USART_Message));
     btQueueRx = xQueueCreate(10, sizeof(USART_Message));
 
     // Nyalakan mesin DMA Receiver di latar belakang (menunggu Interupsi IDLE)
-    UART_Wrapper_Start_Receive_DMA(phy_device);
+    UART_Wrapper_Start_Receive_DMA(bl_device.ctx);
 
-    // Buat Task RTOS untuk TX dan RX
-    xTaskCreate(BLUETOOTH_TaskTx, "BT_TxTask", 256, (void*)phy_device, tskIDLE_PRIORITY + 1, NULL);
-    xTaskCreate(BLUETOOTH_TaskRx, "BT_RxTask", 256, (void*)phy_device, tskIDLE_PRIORITY + 2, NULL);
+    // Buat Task RTOS untuk TX dan RX dengan prioritas yang disesuaikan
+    xTaskCreate(BLUETOOTH_TaskTx, "BT_TxTask", 256, NULL, priority, NULL);
+    xTaskCreate(BLUETOOTH_TaskRx, "BT_RxTask", 512, NULL, priority + 1, NULL);
 }
 
 /**
  * @brief  Task khusus untuk memproses pengiriman data (TX) ke Smartphone.
- * @param  pvParameters Pointer menuju UART_Context yang dikirim saat xTaskCreate.
+ * @param  pvParameters Parameter task (tidak digunakan).
  * @note   Task ini akan memblokir (Tidur/0% CPU) hingga ada pesan masuk ke btQueueTx.
  */
 void BLUETOOTH_TaskTx(void *pvParameters) {
-    UART_Context *phy = (UART_Context*)pvParameters;
+    (void)pvParameters;
     USART_Message tx_msg;
 
     for (;;) {
         // Task tidur menunggu data. Begitu FSM Utama / Sensor mengirim data
-        // melalui BLUETOOTH_SendMessage, Task ini akan langsung terbangun.
+        // melalui btQueueTx, Task ini akan langsung terbangun.
         if (xQueueReceive(btQueueTx, &tx_msg, portMAX_DELAY) == pdPASS) {
-            if (phy != NULL) {
+            if (bl_device.ctx != NULL) {
                 /*
                  * Merakit Frame dan mengirimkannya lewat DMA.
-                 * Pastikan UART_Protocol_Send di file usart_protocol.c sudah
-                 * diperbaiki agar menggunakan Mutex & DMA persisten buffer.
                  */
-                UART_Protocol_Send(phy, &tx_msg);
+                UART_Protocol_Send(bl_device.ctx, &tx_msg);
             }
         }
     }
@@ -67,11 +73,11 @@ void BLUETOOTH_TaskTx(void *pvParameters) {
 
 /**
  * @brief  Task khusus untuk memantau data yang diterima (RX) dari Smartphone.
- * @param  pvParameters Pointer menuju UART_Context yang dikirim saat xTaskCreate.
- * @note   Task ini akan terbangun dari ISR (MessageBuffer) ketika DMA menerima paket.
+ * @param  pvParameters Parameter task (tidak digunakan).
+ * @note   Task ini akan terbangun dari ISR ketika DMA menerima paket data.
  */
 void BLUETOOTH_TaskRx(void *pvParameters) {
-    UART_Context *phy = (UART_Context*)pvParameters;
+    (void)pvParameters;
 
     // Buffer akumulasi dinaikkan sedikit agar aman jika frame bertumpuk
     static uint8_t rx_accumulator[512];
@@ -82,8 +88,8 @@ void BLUETOOTH_TaskRx(void *pvParameters) {
     USART_Message rx_msg;
 
     for (;;) {
-        // Tidur menunggu ISR melemparkan potongan data (Chunks) via MessageBuffer
-        uint16_t length = UART_Receive_Message(phy, temp_buf, sizeof(temp_buf), portMAX_DELAY);
+        // Tidur menunggu ISR melemparkan potongan data (Chunks) via MessageBuffer/Wrapper
+        uint16_t length = UART_Receive_Message(bl_device.ctx, temp_buf, sizeof(temp_buf), portMAX_DELAY);
 
         if (length > 0) {
             // Pengaman: Kosongkan akumulator jika ukuran data melebihi sisa buffer (Mencegah buffer overflow)
@@ -95,8 +101,7 @@ void BLUETOOTH_TaskRx(void *pvParameters) {
             memcpy(&rx_accumulator[accum_index], temp_buf, length);
             accum_index += length;
 
-            // [PERBAIKAN 2]: Gunakan WHILE untuk memproses frame yang bertumpuk.
-            // Bisa saja Android mengirim 2 perintah sekaligus dalam hitungan mikrodetik.
+            // Gunakan WHILE untuk memproses frame yang bertumpuk secara berurutan
             while (accum_index > 0) {
 
                 // Coba pecah byte mentah menjadi Frame utuh
@@ -105,36 +110,40 @@ void BLUETOOTH_TaskRx(void *pvParameters) {
                     // Terjemahkan Frame Datalink ke Pesan Protokol Aplikasi
                     UART_ProtocolDMA_Parse(&rx_frame, &rx_msg);
 
-                    // Lempar hasil terjemahan ke Queue Utama agar FSM mengambil keputusan
-                    if (uartQueue != NULL) {
-                        // Gunakan portMAX_DELAY agar terjamin masuk atau timeout kecil (misal 10ms)
-                        // jika Anda tidak ingin Task RX terblokir lama.
-                        xQueueSend(uartQueue, &rx_msg, pdMS_TO_TICKS(50));
+                    // PERBAIKAN: Menggunakan systemAppQueue yang di-passing saat Init,
+                    // menghilangkan ketergantungan pada extern variable yang rawan linker error.
+                    if (systemAppQueue != NULL) {
+                        xQueueSend(systemAppQueue, &rx_msg, pdMS_TO_TICKS(50));
                     }
 
-                    // [PERBAIKAN 3]: Menggeser sisa buffer (Memmove) bukan Hard Reset!
-                    // Hitung total byte frame yang selesai diproses (Header+Cmd+Len+Payload+CRC)
-                    // Asumsi struktur Datalink: Header(1) + Cmd(1) + Len(1) + Payload(Len) + CRC(1) = Len + 4
-                    // *Note: Silakan sesuaikan angka '4' di bawah ini dengan jumlah byte overhead protokol Anda.
-                    uint16_t processed_bytes = rx_frame.len + 4;
+                    // Menggeser sisa buffer (Memmove) untuk data frame berikutnya
+                    uint16_t processed_bytes = rx_frame.len + 4; // Sesuaikan overhead protokol
 
                     if (accum_index >= processed_bytes) {
                         uint16_t remaining_bytes = accum_index - processed_bytes;
                         if (remaining_bytes > 0) {
-                            // Geser byte sisa yang belum ter-parse ke indeks 0
                             memmove(&rx_accumulator[0], &rx_accumulator[processed_bytes], remaining_bytes);
                         }
-                        accum_index = remaining_bytes; // Update sisa indeks
+                        accum_index = remaining_bytes;
                     } else {
-                        // Reset penuh (pengaman darurat, normalnya logik ini tidak tereksekusi)
                         accum_index = 0;
                     }
                 } else {
-                    // Frame belum utuh (mungkin tertahan di pengiriman fisik Bluetooth).
-                    // Keluar dari While, biarkan sistem tidur dan menunggu byte selanjutnya datang.
+                    // Frame belum utuh, keluar dari while dan tunggu byte berikutnya
                     break;
                 }
             } // End of While
         }
     }
+}
+
+/**
+ * @brief  Fungsi publik bagi modul lain untuk mengirim pesan ke antrean Bluetooth TX.
+ * @param  msg Pointer ke struktur USART_Message yang akan dikirim.
+ * @return pdTRUE jika berhasil masuk antrean, pdFALSE jika gagal/penuh.
+ */
+BaseType_t BLUETOOTH_Task_SendMessage(const USART_Message *msg) {
+    // Gunakan btQueueTx yang sudah static di file ini
+    if (btQueueTx == NULL || msg == NULL) return pdFALSE;
+    return xQueueSend(btQueueTx, msg, pdMS_TO_TICKS(100));
 }

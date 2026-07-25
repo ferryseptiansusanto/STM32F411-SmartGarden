@@ -30,7 +30,7 @@ void UART_Init(UART_Context *dev) {
     if (dev == NULL || dev->huart == NULL) return;
 
     dev->tx_sem = xSemaphoreCreateBinary();
-    dev->tx_mutex = xSemaphoreCreateMutex(); // Mutex pengaman tabrakan antar-task
+    dev->tx_mutex = xSemaphoreCreateRecursiveMutex(); // Mutex pengaman tabrakan antar-task
     dev->rx_msg_buf = xMessageBufferCreate(UART_MSG_BUFFER_SIZE);
 
     // Pastikan memori buffer dibersihkan saat startup awal
@@ -54,7 +54,7 @@ HAL_StatusTypeDef UART_Send(UART_Context *dev, const uint8_t *data, uint16_t len
     if (len > sizeof(dev->dma_tx_buffer)) return HAL_ERROR;
 
     // [PERBAIKAN KUNCI 1]: Ambil Mutex untuk memblokir task lain yang mencoba menggunakan peripheral UART ini
-    if (xSemaphoreTake(dev->tx_mutex, portMAX_DELAY) != pdPASS) {
+    if (xSemaphoreTakeRecursive(dev->tx_mutex, portMAX_DELAY) != pdPASS) {
         return HAL_TIMEOUT;
     }
 
@@ -77,7 +77,7 @@ HAL_StatusTypeDef UART_Send(UART_Context *dev, const uint8_t *data, uint16_t len
     }
 
     // Lepaskan Mutex kembali agar task lain dapat mengantre untuk mengirim pesan berikutnya
-    xSemaphoreGive(dev->tx_mutex);
+    xSemaphoreGiveRecursive(dev->tx_mutex);
     return status;
 }
 

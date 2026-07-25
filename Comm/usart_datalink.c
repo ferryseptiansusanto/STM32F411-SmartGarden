@@ -21,7 +21,7 @@ int USART_Datalink_SendFrame(UART_Context *dev, USART_Frame *frame) {
     if (dev == NULL || dev->tx_mutex == NULL) return 0;
 
     // 1. Ambil hak eksklusif (Mutex) agar tidak ada task lain yang menyela
-    if (xSemaphoreTake(dev->tx_mutex, pdMS_TO_TICKS(1000)) != pdPASS) {
+    if (xSemaphoreTakeRecursive(dev->tx_mutex, pdMS_TO_TICKS(1000)) != pdPASS) {
         return 0; // Gagal mendapatkan akses ke hardware TX
     }
 
@@ -39,7 +39,7 @@ int USART_Datalink_SendFrame(UART_Context *dev, USART_Frame *frame) {
     int result = (UART_Send(dev, dev->dma_tx_buffer, frame->len + 4) == HAL_OK);
 
     // 4. Lepaskan Mutex
-    xSemaphoreGive(dev->tx_mutex);
+    xSemaphoreGiveRecursive(dev->tx_mutex);
     return result;
 }
 
@@ -112,7 +112,7 @@ int USART_DatalinkDMA_ParseBuffer(uint8_t *buf, uint16_t len, USART_Frame *frame
 
                 // Verifikasi CRC
                 if (frame->crc == calc_crc(frame)) {
-                    return 1; // Paket data valid ditemukan!
+                	return (i + 4 + frame->len); // Paket data valid ditemukan!
                 }
 
                 // Jika CRC salah, sistem abaikan dan lanjut loop mencari 0xAA berikutnya

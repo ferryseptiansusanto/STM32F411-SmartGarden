@@ -59,10 +59,6 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define SYS_WKUP_Pin GPIO_PIN_0
 #define SYS_WKUP_GPIO_Port GPIOA
-#define FM_FERTILIZER_Pin GPIO_PIN_1
-#define FM_FERTILIZER_GPIO_Port GPIOA
-#define FM_OUTLET_Pin GPIO_PIN_2
-#define FM_OUTLET_GPIO_Port GPIOA
 #define PH_Pin GPIO_PIN_3
 #define PH_GPIO_Port GPIOA
 #define SPI1_CS_Pin GPIO_PIN_4
@@ -95,8 +91,6 @@ void Error_Handler(void);
 #define LVL_TANK_FULL_Pin GPIO_PIN_12
 #define LVL_TANK_FULL_GPIO_Port GPIOA
 #define LVL_TANK_FULL_EXTI_IRQn EXTI15_10_IRQn
-#define FM_INLET_Pin GPIO_PIN_15
-#define FM_INLET_GPIO_Port GPIOA
 #define VALVE_TANK_IN_Pin GPIO_PIN_4
 #define VALVE_TANK_IN_GPIO_Port GPIOB
 #define VALVE_TANK_OUT_Pin GPIO_PIN_5

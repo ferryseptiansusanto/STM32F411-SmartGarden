@@ -8,10 +8,10 @@
 /*-----------------------------------------------------------------------*/
 
 #include <ds3231_wrapper.h>
+#include <storage_wrapper.h>
 #include "ff.h"			/* Basic definitions of FatFs */
 #include "diskio.h"		/* Declarations FatFs MAI */
 /* Example: Declarations of the platform and disk functions in the project */
-#include "storage.h"
 /* Example: Mapping of physical drive number for each drive */
 #define DEV_MMC		0	/* Map MMC/SD card to physical drive 1 */
 

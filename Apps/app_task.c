@@ -11,6 +11,7 @@
 #include "task.h"
 #include "queue.h"
 #include <stdio.h>
+#include <storage_wrapper.h>
 #include "app_task.h"
 // Include actuator, sensor
 #include "actuator/actuator_driver.h"
@@ -21,7 +22,6 @@
 // Include device support
 #include "ds3231_wrapper.h"
 #include "eeprom_wrapper.h"
-#include "storage.h"
 // Include management
 #include "config_data.h"
 #include "config_manager.h"
@@ -280,7 +280,7 @@ static void vTaskApp(void *pvParameters) {
     last_rtc_check = xTaskGetTickCount();
 
     for (;;) {
-        QueueSetMemberHandle_t activatedQueue = xQueueSelectFromSet(appQueueSet, 0);
+        QueueSetMemberHandle_t activatedQueue = xQueueSelectFromSet(appQueueSet, pdMS_TO_TICKS(10));
 
         if (activatedQueue == appQueue) {
             if (xQueueReceive(appQueue, &evt, 0)) {
@@ -338,7 +338,6 @@ static void vTaskApp(void *pvParameters) {
         HandleIrrigationRoutine();
         HandleFertilizationRoutine();
 
-        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 

@@ -31,11 +31,7 @@
 #include "spi_wrapper.h"
 #include "i2c_wrapper.h"
 #include "uart_wrapper.h"
-<<<<<<< Upstream, based on origin/main
-
-=======
 #include "flowmeter/flowmeter_driver.h"
->>>>>>> 162f9e1 Perbaikan pada modul bluetooth modul
 #include "bluetooth_task.h"
 #include "app_task.h"
 
@@ -59,7 +55,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+extern QueueHandle_t appQueue;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -115,12 +111,6 @@ int main(void)
   SPI_Init(&spi1_ctx);
   UART_Init(&uart1_ctx);
 
-<<<<<<< Upstream, based on origin/main
-  // 1. Buat Task Utama Aplikasi (otomatis menginisialisasi Queue internal)
-  APP_TaskCreate(tskIDLE_PRIORITY + 2);
-  // 2. Buat Task Bluetooth
-  BLUETOOTH_AppTaskCreate(tskIDLE_PRIORITY + 2, &uart1_ctx);
-=======
   // 1. Buat Task Utama terlebih dahulu (Ini akan menginisialisasi 'appQueue')
   APP_TaskCreate(tskIDLE_PRIORITY + 1);
 
@@ -128,7 +118,6 @@ int main(void)
   BLUETOOTH_AppTaskCreate(tskIDLE_PRIORITY + 2, &uart1_ctx, appQueue);
 
   // (Inisialisasi task lain jika ada...)
->>>>>>> 162f9e1 Perbaikan pada modul bluetooth modul
   vTaskStartScheduler();
 
   /* USER CODE END 2 */

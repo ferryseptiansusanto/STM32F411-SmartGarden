@@ -106,7 +106,7 @@ void BLUETOOTH_TaskRx(void *pvParameters) {
 
                 // Coba pecah byte mentah menjadi Frame utuh
             	int consumed_bytes = USART_DatalinkDMA_ParseBuffer(rx_accumulator, accum_index, &rx_frame);
-                if (consumed_bytes>0) {
+                if (consumed_bytes > 0) {
 
                     // Terjemahkan Frame Datalink ke Pesan Protokol Aplikasi
                     UART_ProtocolDMA_Parse(&rx_frame, &rx_msg);
@@ -117,21 +117,7 @@ void BLUETOOTH_TaskRx(void *pvParameters) {
                         xQueueSend(systemAppQueue, &rx_msg, pdMS_TO_TICKS(50));
                     }
 
-<<<<<<< Upstream, based on origin/main
-                    // Menggeser sisa buffer (Memmove) untuk data frame berikutnya
-                    uint16_t processed_bytes = rx_frame.len + 4; // Sesuaikan overhead protokol
-
-                    if (accum_index >= processed_bytes) {
-                        uint16_t remaining_bytes = accum_index - processed_bytes;
-                        if (remaining_bytes > 0) {
-                            memmove(&rx_accumulator[0], &rx_accumulator[processed_bytes], remaining_bytes);
-                        }
-                        accum_index = remaining_bytes;
-                    } else {
-                        accum_index = 0;
-                    }
-=======
-                    // PERBAIKAN: Geser buffer menggunakan jumlah bytes yang akurat
+                    // PERBAIKAN: Geser buffer menggunakan jumlah bytes yang akurat (TIDAK ADA LAGI CONFLICT)
 					if (accum_index >= consumed_bytes) {
 						uint16_t remaining_bytes = accum_index - consumed_bytes;
 						if (remaining_bytes > 0) {
@@ -141,7 +127,6 @@ void BLUETOOTH_TaskRx(void *pvParameters) {
 					} else {
 						accum_index = 0;
 					}
->>>>>>> 162f9e1 Perbaikan pada modul bluetooth modul
                 } else {
                     // Frame belum utuh, keluar dari while dan tunggu byte berikutnya
                     break;

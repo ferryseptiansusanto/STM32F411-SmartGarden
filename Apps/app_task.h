@@ -8,11 +8,11 @@
 #ifndef APPS_APP_TASK_H_
 #define APPS_APP_TASK_H_
 
+#include <storage_wrapper.h>
 #include "main.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
-#include "storage.h"
 
 // --- CONFIGURATION HEADER (Konstanta Target Sistem) ---
 #define TARGET_VOL_IRIGASI          20.0f   // Target irigasi rutin: 20 Liter

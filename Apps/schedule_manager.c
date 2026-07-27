@@ -105,13 +105,18 @@ bool Schedule_MarkAsFinish(int sch_index) {
     fr = f_lseek(&fobj, schedule_list[sch_index].file_pos);
     if (fr == FR_OK) {
         /* Format ulang baris teks tersebut menjadi string finish */
-        sprintf(line, "%02d/%02d/%04d %02d:%02d %s finish\n",
-                schedule_list[sch_index].day,
-                schedule_list[sch_index].month,
-                schedule_list[sch_index].year,
-                schedule_list[sch_index].hour,
-                schedule_list[sch_index].minute,
-                schedule_list[sch_index].recipe_name);
+    	/* MENGAPA PADDING SPASI DIBUTUHKAN:
+    	           Kata 'onschedule' = 10 karakter. Kata 'finish' = 6 karakter.
+    	           Kita menambahkan 4 buah spasi di belakang 'finish' ("finish    ")
+    	           agar bisa menimpa total 10 karakter sisa kata lama di dalam file SD Card,
+    	           sehingga mencegah munculnya string cacat seperti 'finishdule'. */
+		sprintf(line, "%02d/%02d/%04d %02d:%02d %s finish    \n",
+				schedule_list[sch_index].day,
+				schedule_list[sch_index].month,
+				schedule_list[sch_index].year,
+				schedule_list[sch_index].hour,
+				schedule_list[sch_index].minute,
+				schedule_list[sch_index].recipe_name);
 
         f_puts(line, &fobj);
     }

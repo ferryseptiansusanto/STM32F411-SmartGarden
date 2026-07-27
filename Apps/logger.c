@@ -9,7 +9,7 @@
 #include <logger.h>
 #include <string.h>
 #include <stdio.h>
-#include "storage.h"
+#include <storage_wrapper.h>
 #include "delay.h"
 #include "diskio.h"
 static FIL file;

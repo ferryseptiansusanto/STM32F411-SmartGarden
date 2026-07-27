@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-#include "storage.h"
+#include <storage_wrapper.h>
 
 /* Status of Disk Functions */
 typedef BYTE	DSTATUS;

@@ -8,9 +8,9 @@
 #ifndef INC_LOGGER_H_
 #define INC_LOGGER_H_
 
+#include <storage_wrapper.h>
 #include "ff.h"
 #include "spi_wrapper.h"
-#include "storage.h"
 #define LOG_Header "Date,Time,Temperature,Current,Voltage\r\n"
 extern SPI_StorageDevice SDCard_Ctx;
 // Status hasil operasi

@@ -107,7 +107,7 @@ int main(void)
   MX_TIM5_Init();
   MX_TIM9_Init();
   /* USER CODE BEGIN 2 */
-
+  DWT_Delay_Init();
   /* Inisialisasi Wrapper Hardware */
   I2C_Init(&i2c1_ctx);
   SPI_Init(&spi1_ctx);

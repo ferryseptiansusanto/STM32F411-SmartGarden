@@ -37,6 +37,7 @@ static StorageStatus_t sd_wait_ready(SPI_StorageDevice *dev) {
         	return STORAGE_ERROR;
         }
         if (resp == 0xFF) return STORAGE_OK;
+        DelayMs(1);
     } while (GetTick() < timeout);
     return STORAGE_ERROR;
 }
@@ -132,6 +133,7 @@ StorageStatus_t STORAGE_Init(SPI_StorageDevice *dev) {
 			sd_send_cmd(dev, 55, 0, 0xFF);
 			response = sd_send_cmd(dev, 41, 0, 0xFF);
 			SPI_Unselect_CS(dev->ctx, dev->cs_port, dev->cs_pin);
+			DelayMs(1);
 		} while (response != 0x00 && GetTick() < retry);
 		if (response != 0x00) return STORAGE_ERROR;
 	}
@@ -188,6 +190,7 @@ StorageStatus_t STORAGE_ReadBlocks(SPI_StorageDevice *dev, uint8_t *buff, uint32
                 return STORAGE_ERROR;
             }
             if (token == 0xFE) break;
+            DelayMs(1);
         } while (GetTick() < timeout);
 
         if (token != 0xFE) {
@@ -234,6 +237,7 @@ StorageStatus_t STORAGE_ReadBlocks(SPI_StorageDevice *dev, uint8_t *buff, uint32
                     return STORAGE_ERROR;
                 }
                 if (token == 0xFE) break;
+                DelayMs(1);
             } while (GetTick() < timeout);
 
             if (token != 0xFE) {
@@ -317,6 +321,7 @@ StorageStatus_t STORAGE_WriteBlocks(SPI_StorageDevice *dev, const uint8_t *buff,
         do {
             SPI_TransmitReceive(dev->ctx, dev->mode, &dummy, &tmp, 1);
             if (tmp != 0x00) break;
+            DelayMs(1);
         } while (GetTick() < timeout);
         if (tmp != 0xFF) { SPI_Unselect_CS(dev->ctx, dev->cs_port, dev->cs_pin); return STORAGE_ERROR; }
 
@@ -356,6 +361,7 @@ StorageStatus_t STORAGE_WriteBlocks(SPI_StorageDevice *dev, const uint8_t *buff,
             do {
                 SPI_TransmitReceive(dev->ctx, dev->mode, &dummy, &tmp, 1);
                 if (tmp != 0x00) break;
+                DelayMs(1);
             } while (GetTick() < timeout);
             if (tmp != 0xFF) { SPI_Unselect_CS(dev->ctx, dev->cs_port, dev->cs_pin); return STORAGE_ERROR; }
         }
@@ -370,6 +376,7 @@ StorageStatus_t STORAGE_WriteBlocks(SPI_StorageDevice *dev, const uint8_t *buff,
         do {
             SPI_TransmitReceive(dev->ctx, dev->mode, &dummy, &tmp, 1);
             if (tmp != 0x00) break;
+            DelayMs(1);
         } while (GetTick() < timeout);
         if (tmp != 0xFF) { SPI_Unselect_CS(dev->ctx, dev->cs_port, dev->cs_pin); return STORAGE_ERROR; }
     }

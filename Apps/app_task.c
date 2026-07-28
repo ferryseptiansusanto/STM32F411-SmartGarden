@@ -62,8 +62,11 @@ FlowSensor_t sensor_outlet;
 FlowSensor_t sensor_fert;
 
 /* --- Eksternal Periferal dari Core Inisialisasi Perangkat Keras --- */
-extern TIM_HandleTypeDef htim2;
+/* --- Eksternal Periferal dari Core Inisialisasi Perangkat Keras --- */
 extern ADC_HandleTypeDef hadc1;
+extern TIM_HandleTypeDef htim2;
+extern TIM_HandleTypeDef htim5;
+extern TIM_HandleTypeDef htim9;
 
 /* --- Variabel Konteks FreeRTOS Kernel --- */
 TaskHandle_t appTaskHandle;
@@ -249,9 +252,14 @@ static void vTaskApp(void *pvParameters) {
     // 2. Inisialisasi Sensor Suhu DS18B20 (Sesuaikan Port & Pin dengan CubeMX Anda)
     TempSensor_Init(TEMP_GPIO_Port, TEMP_Pin);
     // 3. Inisialisasi Flowmeter
-    FlowSensor_Init(&sensor_inlet, sys_calib.fm_inlet_pulse_per_liter, &htim2, TIM_CHANNEL_1);
-    FlowSensor_Init(&sensor_outlet, sys_calib.fm_outlet_pulse_per_liter, &htim2, TIM_CHANNEL_2);
-    FlowSensor_Init(&sensor_fert, sys_calib.fm_fert_pulse_per_liter, &htim2, TIM_CHANNEL_3);
+    // 3. Inisialisasi Flowmeter
+        /* MENGAPA DIPERBAIKI:
+           - Menyertakan Logical ID (FLOW_SENSOR_INLET, dll) sesuai 5 parameter fungsi agar sistem kalibrasi berjalan tepat sasaran.
+           - Menyesuaikan handle hardware (&htim5, &htim9, &htim2) agar selaras dengan skema Pinout Hardware di spesifikasi (PA1, PA2, PA15).
+        */
+        FlowSensor_Init(&sensor_inlet,  FLOW_SENSOR_INLET,  sys_calib.fm_inlet_pulse_per_liter,  &htim5, TIM_CHANNEL_2);
+        FlowSensor_Init(&sensor_outlet, FLOW_SENSOR_OUTLET, sys_calib.fm_outlet_pulse_per_liter, &htim9, TIM_CHANNEL_1);
+        FlowSensor_Init(&sensor_fert,   FLOW_SENSOR_FERT,   sys_calib.fm_fert_pulse_per_liter,   &htim2, TIM_CHANNEL_1);
     // 4. Inisialisasi Actuator
     Actuator_Init();
     // 5. Inisialisasi Water Level

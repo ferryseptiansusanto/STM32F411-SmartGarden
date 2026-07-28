@@ -25,5 +25,15 @@
 #define OF05ZZT  2174
 //------------------------
 
+/**
+ * @brief Enum ID Logis untuk memetakan peran sensor flowmeter.
+ * Terpisah total dari konfigurasi hardware Timer/Channel (CubeMX).
+ */
+typedef enum {
+    FLOW_SENSOR_INLET = 0,  ///< Flowmeter Jalur Masuk Utama
+    FLOW_SENSOR_OUTLET,     ///< Flowmeter Jalur Irigasi ke Tanaman
+    FLOW_SENSOR_FERT,       ///< Flowmeter Jalur Pupuk/Nutrisi
+    FLOW_SENSOR_MAX
+} FlowSensorID_t;
 
 #endif /* FLOWMETER_FLOWMETER_TYPE_H_ */

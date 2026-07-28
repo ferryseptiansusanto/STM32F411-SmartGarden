@@ -184,7 +184,6 @@ void SystemClock_Config(void)
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
     // Lempar sinyal interupsi ini ke driver flowmeter kita
-    FlowSensor_ProcessIC(htim);
 }
 
 /* USER CODE END 4 */

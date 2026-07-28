@@ -11,7 +11,9 @@
 // Task implementation function
 void vFlowmeterTask(void *pvParameters) {
     FlowSensor_t *sensor_ctx = (FlowSensor_t *)pvParameters;
-
+    FlowSensor_Init(&fm_inlet,  FLOW_SENSOR_INLET,  YFS201, &htim2, TIM_CHANNEL_1);
+    FlowSensor_Init(&fm_outlet, FLOW_SENSOR_OUTLET, YFS201, &htim5, TIM_CHANNEL_2);
+    FlowSensor_Init(&fm_fert,   FLOW_SENSOR_FERT,   YFS201, &htim9, TIM_CHANNEL_1);
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(1000);
 

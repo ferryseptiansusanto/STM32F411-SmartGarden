@@ -1,10 +1,10 @@
 /*
  * flowmeter_driver.h
  *
- *  Created on: 11 Jun 2026
- *      Author: ferry
+ * Arsitektur: Zero-Interrupt Hardware Counter (TIM2, TIM5, TIM9)
+ * Created on: 11 Jun 2026
+ *     Author: ferry
  */
-
 #ifndef FLOWMETER_FLOWMETER_DRIVER_H_
 #define FLOWMETER_FLOWMETER_DRIVER_H_
 
@@ -14,14 +14,14 @@
 #include "flowmeter/flowmeter_type.h"
 
 typedef struct {
-    TIM_HandleTypeDef* htim;     // Pointer ke Timer, contoh: &htim2
-    uint32_t tim_channel;        // Channel Timer (CubeMX), contoh: TIM_CHANNEL_1
-    uint32_t hal_active_channel; // Cache untuk HAL Active Channel (Optimasi ISR)
+    FlowSensorID_t sensor_id;    // Alias Logis (FLOW_SENSOR_INLET, OUTLET, FERT)
+    TIM_HandleTypeDef* htim;     // Pointer ke Timer (&htim2, &htim5, &htim9)
+    uint32_t tim_channel;        // Channel Timer (TIM_CHANNEL_1, dst)
 
+    uint32_t last_cnt;           // Register CNT terakhir
     volatile uint32_t total_pulse;
-    volatile uint32_t pulse;
 
-    float pulse1liter;
+    float pulse1liter;           // Fallback / default pulse rate
     float flowrate_hour;
     float flowrate_minute;
     float flowrate_second;
@@ -30,11 +30,10 @@ typedef struct {
     TickType_t time_before;
 } FlowSensor_t;
 
-// Prototipe Fungsi
-void FlowSensor_Init(FlowSensor_t *sensor, uint16_t type, TIM_HandleTypeDef* htim, uint32_t channel);
+// Prototipe Fungsi Utama
+void FlowSensor_Init(FlowSensor_t *sensor, FlowSensorID_t id, uint16_t type, TIM_HandleTypeDef* htim, uint32_t channel);
 void FlowSensor_Start(FlowSensor_t *sensor);
 void FlowSensor_Stop(FlowSensor_t *sensor);
-void FlowSensor_ProcessIC(TIM_HandleTypeDef *htim); // ISR Handler
 void FlowSensor_Read(FlowSensor_t *sensor);
 void FlowSensor_SetType(FlowSensor_t *sensor, uint16_t type);
 

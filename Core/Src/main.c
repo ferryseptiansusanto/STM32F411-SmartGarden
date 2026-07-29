@@ -28,11 +28,12 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "delay.h"
 #include "spi_wrapper.h"
 #include "i2c_wrapper.h"
 #include "uart_wrapper.h"
-#include "flowmeter/flowmeter_driver.h"
 #include "bluetooth_task.h"
+#include "flowmeter_task.h"
 #include "app_task.h"
 
 /* USER CODE END Includes */
@@ -113,11 +114,15 @@ int main(void)
   SPI_Init(&spi1_ctx);
   UART_Init(&uart1_ctx);
 
+
   // 1. Buat Task Utama terlebih dahulu (Ini akan menginisialisasi 'appQueue')
   APP_TaskCreate(tskIDLE_PRIORITY + 1);
 
   // 2. Buat Task Bluetooth, lalu masukkan 'appQueue' sebagai parameter ketiga
   BLUETOOTH_AppTaskCreate(tskIDLE_PRIORITY + 2, &uart1_ctx, appQueue);
+
+  // 3. Buat Task Flowmeter
+  Flowmeter_TaskCreate(tskIDLE_PRIORITY + 1);
 
   // (Inisialisasi task lain jika ada...)
   vTaskStartScheduler();

@@ -8,6 +8,12 @@
 #ifndef INC_TASKS_FLOWMETER_TASK_H_
 #define INC_TASKS_FLOWMETER_TASK_H_
 
-void Flowmeter_TaskCreate(SPI_Context *Storage_Ctx, I2C_RTCDevice *Rtc_Ctx, UBaseType_t priority);
+#include "flowmeter/flowmeter_driver.h"
+
+extern FlowSensor_t fm_inlet;
+extern FlowSensor_t fm_outlet;
+extern FlowSensor_t fm_fert;
+
+void Flowmeter_TaskCreate(UBaseType_t priority);
 
 #endif /* INC_TASKS_FLOWMETER_TASK_H_ */

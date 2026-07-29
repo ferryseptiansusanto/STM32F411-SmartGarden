@@ -8,42 +8,37 @@
 #ifndef APPS_APP_TASK_H_
 #define APPS_APP_TASK_H_
 
-#include <storage_wrapper.h>
-#include "main.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
 
-// --- CONFIGURATION HEADER (Konstanta Target Sistem) ---
-#define TARGET_VOL_IRIGASI          20.0f   // Target irigasi rutin: 20 Liter
-#define TARGET_VOL_AIR_PENGENCER     2.0f   // Pemupukan Tahap 1: 2 Liter
-#define TARGET_VOL_PUPUK             0.01f  // Pemupukan Tahap 2: 10ml = 0.01 Liter
-#define TARGET_VOL_IRIGASI_FERT     15.0f   // Pemupukan Tahap 4: Target buang tangki mixing
-
-#define TARGET_EC_MAX                2.5f   // Batas atas kepekatan nutrisi EC
-#define MIXING_DURATION_MS           30000  // Tahap 3: Durasi aduk mixer (30 detik)
-
-// --- Struktur Event Queue ---
-typedef enum {
-    EVENT_TYPE_KEYPAD,
-    EVENT_TYPE_BLUETOOTH_CSV,
-    EVENT_TYPE_TRIGGER_IRRIG,
-    EVENT_TYPE_TRIGGER_FERT
-} EventType_t;
-
-typedef struct {
-    EventType_t type;
-    union {
-        struct { char key; } keypad;
-        struct { char buffer[64]; } bluetooth;
-    } data;
-} CommandEvent;
-
+// Ekspos Queue agar modul lain (seperti Bluetooth/UART) bisa mengirim perintah
 extern QueueHandle_t appQueue;
 
-// --- API Publik ---
+// FSM Utama Aplikasi
+typedef enum {
+    APP_STATE_IDLE,
+    APP_STATE_IRRIGATION,
+    APP_STATE_FERTILIZATION
+} AppState_t;
+
+// Sub-State untuk Irigasi
+typedef enum {
+    IRR_STATE_PREPARE,
+    IRR_STATE_WATERING,
+    IRR_STATE_COMPLETE
+} IrrigationState_t;
+
+// Sub-State untuk Pemupukan
+typedef enum {
+    FERT_STATE_PREPARE,
+    FERT_STATE_DOSING,
+    FERT_STATE_MIXING,
+    FERT_STATE_DISTRIBUTING,
+    FERT_STATE_COMPLETE
+} FertilizationState_t;
+
+// Deklarasi Fungsi Utama
 void APP_TaskCreate(UBaseType_t priority);
-void HandleIrrigationRoutine(void);
-void HandleFertilizationRoutine(void);
 
 #endif /* APPS_APP_TASK_H_ */

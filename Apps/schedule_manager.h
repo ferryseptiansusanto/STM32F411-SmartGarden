@@ -16,9 +16,32 @@
 #define MAX_SCHEDULES 20
 
 typedef enum {
-    SCH_STATUS_ONSCHEDULE, /**< Jadwal aktif, menunggu waktu eksekusi */
-    SCH_STATUS_FINISH      /**< Jadwal sudah sukses dilaksanakan */
-} SchStatus_t;
+    STATUS_PENDING = 0,
+    STATUS_SUCCESS,
+    STATUS_SKIPPED
+} ScheduleStatus_t;
+
+// --- STRUKTUR JADWAL PUPUK ---
+typedef struct {
+    uint8_t  tipe_pupuk;   // 1 s/d 5
+    uint16_t volume_ml;    // misal: 100
+} Nutrisi_t;
+
+typedef struct {
+    uint32_t timestamp;        // Waktu eksekusi (dikonversi ke Unix Epoch Seconds)
+    Nutrisi_t pupuk[5];        // Array untuk maksimal 5 jenis pupuk
+    uint8_t  jumlah_pupuk;     // Berapa jenis pupuk yang aktif di resep ini
+    uint16_t water_volume_ml;  // Volume air baku
+    ScheduleStatus_t status;   // PENDING / SUCCESS / SKIPPED
+} JadwalPupuk_t;
+
+// --- STRUKTUR JADWAL PENGAIRAN ---
+typedef struct {
+    uint32_t timestamp;        // Waktu eksekusi (Unix Epoch Seconds)
+    uint16_t repeat_days;      // 0 = none, 1 = daily, >1 = custom days
+    uint16_t water_volume_ml;  // Volume air baku
+    ScheduleStatus_t status;   // PENDING / SUCCESS / SKIPPED
+} JadwalPengairan_t;
 
 typedef struct {
     uint8_t day;

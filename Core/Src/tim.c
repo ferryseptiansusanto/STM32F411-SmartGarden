@@ -190,12 +190,12 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* tim_baseHandle)
     /**TIM5 GPIO Configuration
     PA1     ------> TIM5_CH2
     */
-    GPIO_InitStruct.Pin = FM_WATER_INLET_Pin;
+    GPIO_InitStruct.Pin = FM_TANK_IN_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     GPIO_InitStruct.Alternate = GPIO_AF2_TIM5;
-    HAL_GPIO_Init(FM_WATER_INLET_GPIO_Port, &GPIO_InitStruct);
+    HAL_GPIO_Init(FM_TANK_IN_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN TIM5_MspInit 1 */
 
@@ -213,12 +213,12 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* tim_baseHandle)
     /**TIM9 GPIO Configuration
     PA2     ------> TIM9_CH1
     */
-    GPIO_InitStruct.Pin = FM_FERT_OUTLET_Pin;
+    GPIO_InitStruct.Pin = FM_FLUSH_OUTLET_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     GPIO_InitStruct.Alternate = GPIO_AF3_TIM9;
-    HAL_GPIO_Init(FM_FERT_OUTLET_GPIO_Port, &GPIO_InitStruct);
+    HAL_GPIO_Init(FM_FLUSH_OUTLET_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN TIM9_MspInit 1 */
 
@@ -257,7 +257,7 @@ void HAL_TIM_Base_MspDeInit(TIM_HandleTypeDef* tim_baseHandle)
     /**TIM5 GPIO Configuration
     PA1     ------> TIM5_CH2
     */
-    HAL_GPIO_DeInit(FM_WATER_INLET_GPIO_Port, FM_WATER_INLET_Pin);
+    HAL_GPIO_DeInit(FM_TANK_IN_GPIO_Port, FM_TANK_IN_Pin);
 
   /* USER CODE BEGIN TIM5_MspDeInit 1 */
 
@@ -274,7 +274,7 @@ void HAL_TIM_Base_MspDeInit(TIM_HandleTypeDef* tim_baseHandle)
     /**TIM9 GPIO Configuration
     PA2     ------> TIM9_CH1
     */
-    HAL_GPIO_DeInit(FM_FERT_OUTLET_GPIO_Port, FM_FERT_OUTLET_Pin);
+    HAL_GPIO_DeInit(FM_FLUSH_OUTLET_GPIO_Port, FM_FLUSH_OUTLET_Pin);
 
   /* USER CODE BEGIN TIM9_MspDeInit 1 */
 

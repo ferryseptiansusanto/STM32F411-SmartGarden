@@ -30,9 +30,9 @@
  * Terpisah total dari konfigurasi hardware Timer/Channel (CubeMX).
  */
 typedef enum {
-    FLOW_SENSOR_INLET = 0,  ///< Flowmeter Jalur Masuk Utama
-    FLOW_SENSOR_OUTLET,     ///< Flowmeter Jalur Irigasi ke Tanaman
-    FLOW_SENSOR_FERT,       ///< Flowmeter Jalur Pupuk/Nutrisi
+    FM_TANK_IN = 0,  ///< Flowmeter Jalur Masuk Utama
+    FM_FLUSH_OUTLET,     ///< Flowmeter Jalur Irigasi ke Tanaman
+    FM_FERT,       ///< Flowmeter Jalur Pupuk/Nutrisi
     FLOW_SENSOR_MAX
 } FlowSensorID_t;
 

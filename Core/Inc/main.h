@@ -59,10 +59,10 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define SYS_WKUP_Pin GPIO_PIN_0
 #define SYS_WKUP_GPIO_Port GPIOA
-#define FM_WATER_INLET_Pin GPIO_PIN_1
-#define FM_WATER_INLET_GPIO_Port GPIOA
-#define FM_FERT_OUTLET_Pin GPIO_PIN_2
-#define FM_FERT_OUTLET_GPIO_Port GPIOA
+#define FM_TANK_IN_Pin GPIO_PIN_1
+#define FM_TANK_IN_GPIO_Port GPIOA
+#define FM_FLUSH_OUTLET_Pin GPIO_PIN_2
+#define FM_FLUSH_OUTLET_GPIO_Port GPIOA
 #define PH_Pin GPIO_PIN_3
 #define PH_GPIO_Port GPIOA
 #define SPI1_CS_Pin GPIO_PIN_4

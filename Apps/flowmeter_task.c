@@ -17,9 +17,9 @@ FlowSensor_t fm_fert;
 // Task implementation function
 void vFlowmeterTask(void *pvParameters) {
     // 1. Inisialisasi parameter fisik dan logis sensor
-    FlowSensor_Init(&fm_inlet,  FLOW_SENSOR_INLET,  YFS201, &htim2, TIM_CHANNEL_1);
-    FlowSensor_Init(&fm_outlet, FLOW_SENSOR_OUTLET, YFS201, &htim5, TIM_CHANNEL_2);
-    FlowSensor_Init(&fm_fert,   FLOW_SENSOR_FERT,   YFS201, &htim9, TIM_CHANNEL_1);
+    FlowSensor_Init(&fm_inlet,  FM_TANK_IN,  YFS201, &htim2, TIM_CHANNEL_1);
+    FlowSensor_Init(&fm_outlet, FM_FLUSH_OUTLET, YFS201, &htim5, TIM_CHANNEL_2);
+    FlowSensor_Init(&fm_fert,   FM_FERT,   YFS201, &htim9, TIM_CHANNEL_1);
 
     // 2. [SANGAT PENTING] Start Hardware Counter untuk menghitung pulsa!
     FlowSensor_Start(&fm_inlet);

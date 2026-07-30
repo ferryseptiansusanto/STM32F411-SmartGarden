@@ -7,6 +7,7 @@
  * @date    22 Jul 2026
  */
 
+#include <fatfs_wrapper.h>
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
@@ -27,7 +28,6 @@
 #include "config_manager.h"
 #include "recipe_manager.h"
 #include "schedule_manager.h"
-#include "logger.h"
 
 I2C_RTCDevice DS3231_Ctx;
 I2C_EEPROMDevice Eeprom_Ctx;

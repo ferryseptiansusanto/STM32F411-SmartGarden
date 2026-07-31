@@ -1,20 +1,24 @@
-/*
- * water_lvl_driver.c
- *
- *  Created on: 14 Jul 2026
- *      Author: ferry
+/**
+ * @file    water_lvl_driver.c
+ * @brief   Implementasi driver sensor batas air dengan ISR Debouncing.
+ * @author  Ferry
+ * @date    14 Jul 2026
  */
 
 #include "water_lvl_driver.h"
 
-// Waktu debounce 200ms. Riak air di bawah durasi ini akan diabaikan oleh sistem.
-#define DEBOUNCE_TIME_MS 200
+// MENGAPA pdMS_TO_TICKS? Memastikan 200ms selalu akurat terlepas dari
+// berapapun nilai configTICK_RATE_HZ pada FreeRTOS.
+#define DEBOUNCE_TIME_TICKS pdMS_TO_TICKS(200)
 
+/**
+ * @brief Struktur pemetaan hardware untuk pelampung batas air.
+ */
 typedef struct {
     GPIO_TypeDef *port;
     uint16_t pin;
-    uint32_t last_irq_tick; // Menyimpan waktu terakhir interupsi terjadi
-    bool current_state;     // Menyimpan status pelampung yang sudah ter-debounce
+    uint32_t last_irq_tick; ///< Merekam Waktu (Tick) terakhir interupsi valid
+    bool current_state;     ///< Status memori stabil (terproteksi debouncing)
 } WtrLvlMap;
 
 static WtrLvlMap wtrLvlMap[LVL_TANK_COUNT] = {
@@ -25,18 +29,24 @@ static WtrLvlMap wtrLvlMap[LVL_TANK_COUNT] = {
 QueueHandle_t wtrLvlQueue = NULL;
 
 void WtrLvl_Init(void) {
-    // 1. Buat Queue untuk menampung event perubahan level air (Ukuran 5 cukup)
+    // MENGAPA UKURAN 5? Cukup untuk menampung riwayat event jika Task FSM
+    // sedang sibuk. Jika terjadi "Splashing" ekstrem yang melebihi 5 event,
+    // event tambahan akan dibuang (Drop). Ini adalah rate-limiter alami yang aman.
     wtrLvlQueue = xQueueCreate(5, sizeof(WtrLvl_Event_t));
 
-    // 2. Baca status fisik awal saat mesin baru dinyalakan
-    wtrLvlMap[LVL_TANK_FULL].current_state =
-        (HAL_GPIO_ReadPin(wtrLvlMap[LVL_TANK_FULL].port, wtrLvlMap[LVL_TANK_FULL].pin) == GPIO_PIN_RESET);
+    // MENGAPA CEK AWAL? Memastikan status FSM sinkron dengan realita
+    // fisik air sesaat setelah MCU reboot (Fail-Safe Booting).
+    if (wtrLvlMap[LVL_TANK_FULL].port != NULL) {
+        wtrLvlMap[LVL_TANK_FULL].current_state =
+            (HAL_GPIO_ReadPin(wtrLvlMap[LVL_TANK_FULL].port, wtrLvlMap[LVL_TANK_FULL].pin) == GPIO_PIN_RESET);
+    }
 
-    wtrLvlMap[LVL_TANK_EMPTY].current_state =
-        (HAL_GPIO_ReadPin(wtrLvlMap[LVL_TANK_EMPTY].port, wtrLvlMap[LVL_TANK_EMPTY].pin) == GPIO_PIN_RESET);
+    if (wtrLvlMap[LVL_TANK_EMPTY].port != NULL) {
+        wtrLvlMap[LVL_TANK_EMPTY].current_state =
+            (HAL_GPIO_ReadPin(wtrLvlMap[LVL_TANK_EMPTY].port, wtrLvlMap[LVL_TANK_EMPTY].pin) == GPIO_PIN_RESET);
+    }
 }
 
-// Mengembalikan status yang ada di memori (sudah terproteksi debouncing)
 bool WtrLvl_Read(WtrLvl_Types type) {
     if (type >= LVL_TANK_COUNT) return false;
     return wtrLvlMap[type].current_state;
@@ -50,39 +60,43 @@ bool isWtrLvl_Empty(void) {
     return WtrLvl_Read(LVL_TANK_EMPTY);
 }
 
-// --- FUNGSI INTERUPSI (EXTI HANDLER) ---
-// Fungsi ini dipicu murni oleh hardware, menembus batasan task RTOS
+/* -------------------------------------------------------------------------
+ * INTERRUPT SERVICE ROUTINE (ISR)
+ * ------------------------------------------------------------------------- */
 void WtrLvl_EXTI_Callback(uint16_t GPIO_Pin) {
-    uint32_t current_tick = xTaskGetTickCountFromISR(); // Ambil waktu OS saat ini
+    uint32_t current_tick = xTaskGetTickCountFromISR();
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
     for (int i = 0; i < LVL_TANK_COUNT; i++) {
         if (GPIO_Pin == wtrLvlMap[i].pin) {
 
-            // Software Debouncing: Abaikan jika interupsi terjadi sangat berdekatan
-            if ((current_tick - wtrLvlMap[i].last_irq_tick) > DEBOUNCE_TIME_MS) {
+            // MENGAPA PENGURANGAN TICK (current - last) AMAN DARI OVERFLOW?
+            // Dalam arsitektur 32-bit (unsigned), pengurangan akan menghasilkan
+            // selisih waktu yang persis akurat berkat sifat integer underflow C,
+            // bahkan jika tick RTOS meluap kembali ke 0 setiap ~49 hari.
+            if ((current_tick - wtrLvlMap[i].last_irq_tick) > DEBOUNCE_TIME_TICKS) {
                 wtrLvlMap[i].last_irq_tick = current_tick;
 
-                // Baca status fisik pin (karena EXTI kita set Rising & Falling)
+                // Baca status hardware nyata di pin
                 bool is_reached = (HAL_GPIO_ReadPin(wtrLvlMap[i].port, wtrLvlMap[i].pin) == GPIO_PIN_RESET);
 
-                // Cek apakah status benar-benar berubah
+                // Filter lapis kedua: Hanya kirim event jika benar-benar ada perubahan status
                 if (wtrLvlMap[i].current_state != is_reached) {
                     wtrLvlMap[i].current_state = is_reached;
 
-                    // Lempar notifikasi ke Queue agar Task FSM Control terbangun
                     if (wtrLvlQueue != NULL) {
                         WtrLvl_Event_t event;
                         event.sensor = (WtrLvl_Types)i;
                         event.is_reached = is_reached;
+                        // Non-Blocking push ke Queue
                         xQueueSendFromISR(wtrLvlQueue, &event, &xHigherPriorityTaskWoken);
                     }
                 }
             }
-            break; // Pin ditemukan, hentikan loop
+            break; // Pin ditemukan, cegah loop berlanjut
         }
     }
 
-    // Beri tahu OS untuk berpindah ke Task prioritas tinggi jika ada yang sedang menunggu Queue ini
+    // Force Context Switch jika paket berhasil membangunkan Task prioritas tinggi (App Task)
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }

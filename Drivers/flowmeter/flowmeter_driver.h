@@ -1,9 +1,9 @@
-/*
- * flowmeter_driver.h
- *
- * Arsitektur: Zero-Interrupt Hardware Counter (TIM2, TIM5, TIM9)
- * Created on: 11 Jun 2026
- *     Author: ferry
+/**
+ * @file flowmeter_driver.h
+ * @brief Driver Flowmeter menggunakan Zero-Interrupt Hardware Counter.
+ * @note Bergantung pada FreeRTOS (xTaskGetTickCount) untuk delta waktu.
+ * @author Ferry
+ * @date 11 Jun 2026
  */
 #ifndef FLOWMETER_FLOWMETER_DRIVER_H_
 #define FLOWMETER_FLOWMETER_DRIVER_H_
@@ -13,24 +13,26 @@
 #include "task.h"
 #include "flowmeter/flowmeter_type.h"
 
+/**
+ * @brief Struktur Data (Instance) utama untuk objek Flowmeter.
+ */
 typedef struct {
-    FlowSensorID_t sensor_id;    // Alias Logis (FLOW_SENSOR_INLET, OUTLET, FERT)
-    TIM_HandleTypeDef* htim;     // Pointer ke Timer (&htim2, &htim5, &htim9)
-    uint32_t tim_channel;        // Channel Timer (TIM_CHANNEL_1, dst)
+    FlowSensorID_t sensor_id;    ///< Alias Logis Sensor
+    TIM_HandleTypeDef* htim;     ///< Pointer ke Handle Timer Hardware
+    uint32_t tim_channel;        ///< Channel Timer
 
-    uint32_t last_cnt;           // Register CNT terakhir
+    uint32_t last_cnt;           ///< Rekaman Register Counter Hardware terakhir
     volatile uint32_t total_pulse;
 
-    float pulse1liter;           // Fallback / default pulse rate
+    float pulse1liter;           ///< Fallback kalibrasi jika data EEPROM gagal
     float flowrate_hour;
     float flowrate_minute;
     float flowrate_second;
     float volume;
 
-    TickType_t time_before;
+    TickType_t time_before;      ///< Stamp waktu FreeRTOS terakhir baca
 } FlowSensor_t;
 
-// Prototipe Fungsi Utama
 void FlowSensor_Init(FlowSensor_t *sensor, FlowSensorID_t id, uint16_t type, TIM_HandleTypeDef* htim, uint32_t channel);
 void FlowSensor_Start(FlowSensor_t *sensor);
 void FlowSensor_Stop(FlowSensor_t *sensor);
@@ -47,4 +49,3 @@ void FlowSensor_ResetPulse(FlowSensor_t *sensor);
 void FlowSensor_ResetVolume(FlowSensor_t *sensor);
 
 #endif /* FLOWMETER_FLOWMETER_DRIVER_H_ */
-

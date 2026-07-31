@@ -1,11 +1,9 @@
 /**
  * @file    temp_driver.h
- * @brief   Driver untuk Sensor Temperatur (Suhu Air/Lingkungan).
- * 		    Driver Sensor Temperatur Digital DS18B20 (1-Wire Protocol).
- * @note    Mendukung integrasi RTOS dan parameter kalibrasi terpusat.
- *
- *  Created on: 20 Jul 2026
- *      Author: ferry
+ * @brief   Driver Sensor Temperatur Digital DS18B20 (1-Wire Protocol).
+ * @note    Mendukung integrasi RTOS (Zero-Blocking) dan parameter kalibrasi terpusat.
+ * @author  Ferry
+ * @date    20 Jul 2026
  */
 
 #ifndef DRIVERS_TEMP_TEMP_DRIVER_H_
@@ -16,26 +14,28 @@
 
 /**
  * @brief   Inisialisasi GPIO dan pin untuk bus 1-Wire DS18B20.
- * @param   GPIOx   Port GPIO (misal: GPIOA)
- * @param   GPIO_Pin Pin GPIO (misal: GPIO_PIN_4)
+ * @param   GPIOx    Port GPIO (misal: GPIOB)
+ * @param   GPIO_Pin Pin GPIO (misal: GPIO_PIN_1)
  */
 void TempSensor_Init(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin);
 
 /**
  * @brief   Memicu konversi suhu baru pada sensor DS18B20.
- * @note    Perintah 'Convert T' dikirim ke sensor (membutuhkan waktu konversi ~750ms untuk resolusi 12-bit).
+ * @note    Fungsi ini TIDAK memblokir. Task pemanggil wajib melakukan vTaskDelay(~750ms)
+ * setelah fungsi ini dipanggil sebelum membaca suhu.
+ * @return  true jika sensor merespon, false jika sensor terputus.
  */
 bool TempSensor_StartConversion(void);
 
 /**
  * @brief   Membaca hasil suhu aktual dari DS18B20 dan menerapkan kalibrasi.
- * @note    Dipanggil berkala oleh Task FreeRTOS setelah proses konversi selesai.
+ * @return  true jika pembacaan sukses, false jika gagal.
  */
 bool TempSensor_ReadTemperature(void);
 
 /**
  * @brief   Getter Thread-Safe untuk mendapatkan nilai temperatur akhir.
- * @return  Suhu dalam satuan derajat Celcius (Float).
+ * @return  Suhu terkalibrasi dalam satuan derajat Celcius.
  */
 float TempSensor_GetTemperature(void);
 

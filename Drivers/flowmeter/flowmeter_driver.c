@@ -1,22 +1,20 @@
-/*
- * flowmeter_driver.c
- *
- * Refactored:
- * 1. Menghapus ISR O(1) -> Diganti menjadi Zero-Interrupt Hardware Counter.
- * 2. Mendukung TIM2/TIM5 (32-bit) dan TIM9 (16-bit).
- * 3. Integrasi sys_calib.
+/**
+ * @file flowmeter_driver.c
+ * @brief Implementasi Hardware-Counter Flowmeter.
+ * @author Ferry
  */
+
 #include "flowmeter/flowmeter_driver.h"
-#include "config_data.h" // Mengakses sys_calib global
+#include "config_data.h" // Mengakses sys_calib global (RAM tersinkronisasi dari EEPROM)
 #include <stddef.h>
 
 void FlowSensor_Init(FlowSensor_t *sensor, FlowSensorID_t id, uint16_t type, TIM_HandleTypeDef* htim, uint32_t channel) {
     if (sensor == NULL) return;
 
-    sensor->sensor_id   = id;     // Simpan Alias/Peran Logis Sensor
-    sensor->htim        = htim;   // Hardware Timer
-    sensor->tim_channel = channel;// Hardware Channel
-    sensor->pulse1liter = (float)type; // Fallback jika sys_calib = 0
+    sensor->sensor_id   = id;
+    sensor->htim        = htim;
+    sensor->tim_channel = channel;
+    sensor->pulse1liter = (float)type;
 
     sensor->last_cnt        = 0;
     sensor->total_pulse     = 0;
@@ -29,7 +27,9 @@ void FlowSensor_Init(FlowSensor_t *sensor, FlowSensorID_t id, uint16_t type, TIM
 
 void FlowSensor_Start(FlowSensor_t *sensor) {
     if (sensor != NULL && sensor->htim != NULL) {
-        // Jalankan Base Hardware Counter tanpa Interrupt
+        // MENGAPA MENGGUNAKAN HAL_TIM_Base_Start?
+        // Kita HANYA menghidupkan counter hardware periferal.
+        // TIDAK ADA _IT (Interrupt) yang dihidupkan, sehingga CPU terbebas dari beban hitung.
         HAL_TIM_Base_Start(sensor->htim);
         sensor->last_cnt = sensor->htim->Instance->CNT;
     }
@@ -52,38 +52,44 @@ void FlowSensor_Read(FlowSensor_t *sensor) {
     TickType_t current_time = xTaskGetTickCount();
     TickType_t elapsed_ticks = current_time - sensor->time_before;
 
+    // Cegah pembagian dengan nol (Divide-by-Zero Protection)
     if (elapsed_ticks == 0) return;
 
     float elapsed_seconds = ((float)elapsed_ticks * portTICK_PERIOD_MS) / 1000.0f;
 
-    // 1. Baca Hardware Register CNT
+    // 1. Baca isi Counter dari Hardware Register secara langsung
     uint32_t current_cnt = sensor->htim->Instance->CNT;
     uint32_t local_pulse = 0;
 
-    // 2. Penanganan Overflow berdasarkan Resolusi Timer
+    // 2. MENGAPA ADA CASTING (uint16_t) dan (uint32_t)? (OVERFLOW HANDLING)
+    // TIM9 adalah timer 16-bit (max 65535). Jika last_cnt = 65000, lalu current_cnt meluap ke 500,
+    // (500 - 65000) bernilai negatif secara matematis, TETAPI karena kita paksa di-cast
+    // ke (uint16_t), sifat "Integer Underflow" C otomatis melipat gandakan nilainya menjadi
+    // jarak yang persis benar (500 + (65536 - 65000) = 1036 pulsa).
+    // Sangat ringan (O(1)) tanpa if-else bersarang.
     if (sensor->htim->Instance == TIM9) {
-        // TIM9 = 16-bit Timer (Max 65535)
         local_pulse = (uint16_t)(current_cnt - sensor->last_cnt);
     } else {
-        // TIM2 & TIM5 = 32-bit Timer
+        // TIM2 & TIM5 adalah timer 32-bit
         local_pulse = (uint32_t)(current_cnt - sensor->last_cnt);
     }
 
     sensor->last_cnt = current_cnt;
 
-    // 3. Mapping Nilai Kalibrasi berdasarkan LOGICAL ID (AMUNISI UTAMA ABSTRAKSI)
-    float total_pulses_per_liter = sensor->pulse1liter; // Default fallback
+    // 3. Mapping Nilai Kalibrasi berdasarkan LOGICAL ID
+    float total_pulses_per_liter = sensor->pulse1liter; // Fallback
 
+    // SINKRONISASI ENUM DENGAN file .h
     switch (sensor->sensor_id) {
-        case FLOW_SENSOR_INLET:
+        case FM_WATER_INLET:
             total_pulses_per_liter = (float)sys_calib.fm_inlet_pulse_per_liter;
             break;
 
-        case FLOW_SENSOR_OUTLET:
+        case FM_FERT_OUTLET:
             total_pulses_per_liter = (float)sys_calib.fm_outlet_pulse_per_liter;
             break;
 
-        case FLOW_SENSOR_FERT:
+        case FM_FERT:
             total_pulses_per_liter = (float)sys_calib.fm_fert_pulse_per_liter;
             break;
 
@@ -91,7 +97,7 @@ void FlowSensor_Read(FlowSensor_t *sensor) {
             break;
     }
 
-    // 4. Kalkulasi Volume dan Aliran Air
+    // 4. Kalkulasi Volume dan Aliran
     if (total_pulses_per_liter > 0.0f && local_pulse > 0) {
         float current_volume_liters = (float)local_pulse / total_pulses_per_liter;
         sensor->flowrate_second = current_volume_liters / elapsed_seconds;

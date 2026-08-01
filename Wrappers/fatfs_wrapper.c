@@ -1,104 +1,144 @@
-/*
- * fatfs_wrapper.c
- *
- *  Created on: 10 Apr 2026
- *      Author: ferry
- */
-
-
-#include <fatfs_wrapper.h>
+#include "fatfs_wrapper.h"
 #include <string.h>
-#include <stdio.h>
-#include <storage_wrapper.h>
-#include "delay.h"
-#include "diskio.h"
-static FIL file;
 
-// Jika ingin mendukung >1 SD Card menyala bersamaan, ubah menjadi array
-static FATFS SDFatFS[FF_VOLUMES];
+static FATFS fs;
+static SemaphoreHandle_t FatFs_Mutex = NULL;
 
-F_Status FAT_Init(const char* drive_path, BYTE pdrv, SPI_StorageDevice *dev) {
-	if (dev == NULL || pdrv >= FF_VOLUMES) return F_ERROR;
-
-	// 1. Suntikkan (Inject) Hardware Context ke lapisan bawah FatFs (diskio.c)
-	disk_register_device(pdrv, dev);
-
-	// 2. Sekarang FatFs tahu siapa yang memegang Drive "pdrv", mari kita mount!
-	// Menit ini FatFs akan memanggil disk_initialize(pdrv) di latar belakang
-	// parameter ke-3 Option 0 - (Delayed Mount / Mount Malas)
-	// Option 1 - (Force Mount / Mount Langsung)
-	FRESULT res = f_mount(&SDFatFS[pdrv], drive_path, 1);
-
-	return (res == FR_OK) ? F_OK : F_ERROR;
+/**
+ * @brief Inisialisasi Mutex untuk melindungi SD Card.
+ * @note  Wajib dipanggil sebelum Task FreeRTOS mulai berjalan (di STATE_INIT_HARDWARE).
+ */
+void FATFS_InitMutex(void) {
+    if (FatFs_Mutex == NULL) {
+        FatFs_Mutex = xSemaphoreCreateMutex();
+    }
 }
 
-F_Status FAT_Open(const char *filename) {
-    FRESULT res = f_open(&file, filename, FA_WRITE | FA_OPEN_APPEND);
-    if (res == FR_OK) {
-        if (f_size(&file) == 0) {
-            // tulis header hanya sekali saat file kosong
-            FAT_Write(FAT_Header);
+/**
+ * @brief Mount SD Card ke dalam sistem file.
+ * @param drive_path Label drive (contoh: "", "0:", dll).
+ * @param pdrv       Physical drive number.
+ * @param dev        Pointer ke struktur Context SPI Hardware.
+ */
+FS_Status FATFS_Mount(const char* drive_path, BYTE pdrv, SPI_StorageDevice *dev) {
+    if (dev == NULL || pdrv >= FF_VOLUMES) return FS_ERROR_MOUNT;
+
+    // Suntikkan Hardware Context ke lapisan bawah FatFs (diskio.c)
+    disk_register_device(pdrv, dev);
+
+    // Mount sistem file (Force Mount = 1)
+    if (f_mount(&fs, drive_path, 1) != FR_OK) {
+        return FS_ERROR_MOUNT;
+    }
+    return FS_OK;
+}
+
+/**
+ * @brief  Menulis data ke akhir file (Append) secara aman.
+ * @note   MENGAPA KITA PAKAI MUTEX DI SINI? Jika log_manager (Prioritas Rendah)
+ * sedang menulis log, dan tiba-tiba schedule_manager (Prioritas Tinggi)
+ * menyela untuk memperbarui status jadwal, file system akan hancur.
+ * Mutex ini memaksa schedule_manager antre menunggu log_manager selesai.
+ */
+FS_Status FATFS_WriteAppend(FileContext_t *ctx, const char *path, const char *data) {
+    if (FatFs_Mutex == NULL) return FS_ERROR_OPEN;
+
+    // Tunggu maksimal 1000ms untuk mendapatkan akses SD Card (Fail-Safe)
+    if (xSemaphoreTake(FatFs_Mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+
+        FS_Status status = FS_OK;
+        UINT bytes_written;
+
+        // Buka file dengan mode Tulis & Append (tambah di bawah)
+        if (f_open(&ctx->file, path, FA_OPEN_APPEND | FA_WRITE) == FR_OK) {
+            if (f_write(&ctx->file, data, strlen(data), &bytes_written) != FR_OK) {
+                status = FS_ERROR_WRITE;
+            }
+            f_close(&ctx->file); // Wajib ditutup agar tersimpan ke flash disk
+        } else {
+            status = FS_ERROR_OPEN;
         }
-        return F_OK;
+
+        // SELALU KEMBALIKAN MUTEX! Jika tidak, seluruh sistem yang butuh SD Card akan Deadlock.
+        xSemaphoreGive(FatFs_Mutex);
+        return status;
     }
-    return F_ERROR;
+
+    return FS_LOCKED; // Gagal karena SD Card sedang dikunci Task lain terlalu lama
 }
 
-F_Status FAT_Append(const char *data) {
-    char line[256];
-    snprintf(line, sizeof(line), "%s\n", data);
-    return FAT_Write(line);
-}
+/**
+ * @brief  Membaca isi file ke dalam buffer secara utuh dan aman (Thread-Safe).
+ * @param  ctx         Pointer ke struktur Context (agar aman antar-Task).
+ * @param  path        Nama/lokasi file di SD Card (contoh: "jadwal.txt").
+ * @param  buffer      Alokasi memori RAM (array) tempat data diletakkan.
+ * @param  buffer_size Ukuran maksimal array buffer.
+ * @param  bytes_read  Pointer untuk melaporkan berapa banyak huruf yang berhasil ditarik.
+ * @return FS_Status   FS_OK jika sukses, atau kode error lainnya.
+ * * @note   MENGAPA KITA MENGGUNAKAN MUTEX DI SINI?
+ * Proses membaca dari SD Card melalui SPI membutuhkan beberapa milidetik.
+ * Jika Mutex tidak dipakai, Task yang lebih tinggi bisa tiba-tiba merebut
+ * SPI untuk menulis log, sehingga data yang sedang kita baca tertimpa
+ * atau menghasilkan "HardFault".
+ */
+FS_Status FATFS_Read(FileContext_t *ctx, const char *path, char *buffer, UINT buffer_size, UINT *bytes_read) {
+    if (FatFs_Mutex == NULL) return FS_ERROR_OPEN;
 
-F_Status FAT_Read(const char *filename, char *buffer, UINT bufsize, UINT *bytesRead) {
-    FRESULT res = f_open(&file, filename, FA_READ);
-    if (res == FR_OK) {
-        res = f_read(&file, buffer, bufsize, bytesRead);
-        buffer[*bytesRead] = '\0'; // null-terminate agar aman diprint
-        f_close(&file);
-        return (res == FR_OK) ? F_OK : F_ERROR;
+    FS_Status status = FS_LOCKED;
+
+    // 1. KUNCI SD CARD (Tunggu maksimal 1 detik agar tidak Deadlock)
+    if (xSemaphoreTake(FatFs_Mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+
+        // 2. Buka file khusus untuk mode baca (Read)
+        if (f_open(&ctx->file, path, FA_READ) == FR_OK) {
+
+            // 3. Baca Data
+            // FAIL-SAFE: Kita kurangi 1 (buffer_size - 1) agar selalu ada tempat
+            // untuk meletakkan karakter penutup teks ('\0') di baris berikutnya.
+            FRESULT res = f_read(&ctx->file, buffer, buffer_size - 1, bytes_read);
+
+            if (res == FR_OK) {
+                // Pastikan buffer menjadi string C yang valid, mencegah Buffer Overflow
+                // saat nanti diparsing oleh fungsi strtok() atau sscanf() di Layer Aplikasi
+                buffer[*bytes_read] = '\0';
+                status = FS_OK;
+            } else {
+                status = FS_ERROR_READ;
+            }
+
+            // 4. Tutup File
+            f_close(&ctx->file);
+        } else {
+            status = FS_ERROR_OPEN;
+        }
+
+        // 5. KEMBALIKAN KUNCI SD CARD KEPADA SISTEM
+        xSemaphoreGive(FatFs_Mutex);
     }
-    return F_ERROR;
+
+    return status;
 }
 
-F_Status FAT_Write(const char *value) {
-	UINT bw, length;
-	length = strlen(value);
-	FRESULT res = f_write(&file, value, length, &bw);
-	//printf("value:%s\r\n",value );
-    return (res == FR_OK && bw == length) ? F_OK : F_ERROR;
+/**
+ * @brief  Menghapus file secara aman dari bentrokan Task.
+ * @return FS_OK jika berhasil dihapus atau file tidak ada.
+ */
+FS_Status FATFS_Delete(const char *path) {
+    if (FatFs_Mutex == NULL) return FS_ERROR_OPEN;
+
+    FS_Status status = FS_LOCKED;
+
+    if (xSemaphoreTake(FatFs_Mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        FRESULT res = f_unlink(path);
+
+        // FR_NO_FILE dianggap OK karena tujuannya memang agar file tidak ada
+        if (res == FR_OK || res == FR_NO_FILE) {
+            status = FS_OK;
+        } else {
+            status = FS_ERROR_WRITE;
+        }
+
+        xSemaphoreGive(FatFs_Mutex);
+    }
+    return status;
 }
-
-F_Status FAT_Sync(void) {
-	FRESULT res = f_sync(&file);
-    return (res == FR_OK) ? F_OK : F_ERROR;
-}
-
-F_Status FAT_Delete(const char *filename) {
-    return (f_unlink(filename) == FR_OK) ? F_OK : F_ERROR;
-}
-
-F_Status FAT_Last() {
-    return (f_lseek(&file, f_size(&file)) == FR_OK) ? F_OK : F_ERROR;
-}
-
-
-// Tutup file setelah semua logging selesai
-F_Status FAT_Close(void) {
-
-    FRESULT res = f_close(&file);
-	return (res == FR_OK) ? F_OK : F_ERROR;
-}
-
-F_Status FAT_Unmount(const char* drive_path, BYTE pdrv){
-	if (pdrv >= FF_VOLUMES) return F_ERROR;
-
-	    // 1. Panggil pintu belakang deinit hardware di diskio_ioctl
-	    disk_ioctl(pdrv, CTRL_POWER, NULL);
-
-	    // 2. Unmount software dari RAM
-	    FRESULT res = f_mount(NULL, drive_path, 0);
-
-	    return (res == FR_OK) ? F_OK : F_ERROR;
-}
-

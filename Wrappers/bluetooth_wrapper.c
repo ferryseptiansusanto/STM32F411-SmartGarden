@@ -1,51 +1,66 @@
 /*
- * bluetooth_wrapper.c
- *
- * Deskripsi: Implementasi lapisan abstraksi aplikasi (Wrapper) Bluetooth
- * untuk merakit pesan protokol komunikasi asinkron tanpa memblokir task FSM utama.
+ * @file    bluetooth_wrapper.c
+ * @brief   Implementasi lapisan abstraksi aplikasi (Wrapper) Modem/Bluetooth
+ * @note    Menggunakan standar Pointer Passing (pvPortMalloc) FreeRTOS untuk
+ * efisiensi memori Queue tingkat tinggi.
  *
  * Created on: 8 May 2026
  * Author: ferry
  */
 
 #include "bluetooth_wrapper.h"
-#include "bluetooth_task.h"
+#include "command_task.h" // Asumsi deklarasi Queue Task pengirim ada di sini
+#include "FreeRTOS.h"
 #include <string.h>
 
-/**
- * @brief  Menginisialisasi abstraksi driver fisik komunikasi Bluetooth.
- */
+BL_Device Bluetooth_Ctx;
+
 void BLUETOOTH_Init(BL_Device *dev, UART_Context *ctx) {
-
-	dev->ctx = ctx;
-
+    if (dev != NULL && ctx != NULL) {
+        dev->uart_ctx = ctx;
+    }
 }
 
 /**
- * @brief  Mengemas pesan berbasis string dan mengirimkannya ke Queue TX Bluetooth secara asinkron.
- * @param  dev  Pointer ke konteks UART_Context fisik Bluetooth.
- * @param  cmd  Jenis perintah (Command Type) berdasarkan protokol usart_protocol.h.
- * @param  str  Pesan payload berbentuk string.
- * @note   Fungsi ini aman dipanggil langsung oleh FSM Utama / App Task karena bersifat non-blocking.
+ * @brief  Mengemas pesan dan mengirimkannya ke Queue TX secara asinkron.
+ * @note   MENGAPA KITA PAKAI pvPortMalloc?
+ * Jika kita mem-passing struktur USART_Message utuh ke dalam Queue, FreeRTOS akan
+ * menyalin seluruh byte (bisa >200 byte) yang memboroskan RAM dan CPU.
+ * Dengan pvPortMalloc, kita hanya mem-passing alamat memori (4 byte/pointer) O(1).
  */
-void BLUETOOTH_SendMessage(UART_Context *dev, USART_Command cmd, const char *str) {
-    // Validasi pengaman parameter masukan dan kesiapan antrean FreeRTOS
-	if (str == NULL) return;
+bool BLUETOOTH_SendMessage(BL_Device *dev, USART_Command cmd, const char *str) {
+    if (dev == NULL || str == NULL) return false;
 
-    USART_Message msg;
-    memset(&msg, 0, sizeof(USART_Message));
+    // 1. FAIL-SAFE: Alokasi memori dinamis secara aman dari FreeRTOS Heap
+    USART_Message *msg = (USART_Message *)pvPortMalloc(sizeof(USART_Message));
 
-    // Pasang metadata instruksi protokol aplikasi
-    msg.cmd = cmd;
-    msg.len = strlen(str);
+    // Jika RAM penuh (Heap Exhaustion), batalkan operasi agar sistem tidak Crash
+    if (msg == NULL) return false;
 
-    // Pengaman: Potong data string secara defensif jika ukurannya melebihi payload maksimum struktur paket
-    if (msg.len > sizeof(msg.payload)) {
-        msg.len = sizeof(msg.payload);
+    // Bersihkan memori dari sampah data sebelumnya
+    memset(msg, 0, sizeof(USART_Message));
+
+    // 2. Pasang metadata instruksi protokol aplikasi
+    msg->cmd = cmd;
+    msg->len = strlen(str);
+
+    // 3. PENGAMANAN BUFFER OVERFLOW: Potong string jika kebesaran
+    if (msg->len > sizeof(msg->payload) - 1) { // Sisakan 1 byte untuk Null-Terminator
+        msg->len = sizeof(msg->payload) - 1;
     }
 
-    // Salin string string payload ke dalam container terstruktur paket
-    memcpy(msg.payload, str, msg.len);
+    // 4. Salin payload
+    memcpy(msg->payload, str, msg->len);
+    msg->payload[msg->len] = '\0'; // Ekstra perlindungan String C
 
-    BLUETOOTH_Task_SendMessage(&msg);
+    // 5. KIRIM POINTER KE QUEUE
+    // Fungsi Queue pengirim (misal: xQueueSend) akan mereturn pdPASS jika sukses
+    if (BLUETOOTH_Task_SendMessage(msg) != pdPASS) {
+        // FAIL-SAFE: Jika Queue penuh, kita WAJIB membebaskan (Free) memori
+        // yang tadi di-malloc agar tidak terjadi Memory Leak!
+        vPortFree(msg);
+        return false;
+    }
+
+    return true; // Sukses terkirim ke latar belakang!
 }

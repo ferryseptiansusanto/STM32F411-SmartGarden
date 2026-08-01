@@ -4,27 +4,33 @@
  *  Created on: 13 May 2026
  *      Author: ferry
  */
+/**
+ * @file usart_protocol.h
+ * @brief Lapisan Protokol Penerjemah Pesan (OSI Layer 6)
+ * * Mengubah struktur bingkai mentah (USART_Frame) menjadi
+ * Kontrak Event FSM (CommandEvent_t) dengan pendekatan Zero-Copy.
+ */
 
 #ifndef USART_PROTOCOL_H_
 #define USART_PROTOCOL_H_
 
 #include "usart_datalink.h"
+#include "command_event.h"
 
-typedef enum {
-    CMD_SET_PARAM = 0x01,
-    CMD_GET_DATA  = 0x02,
-    CMD_STREAM_ON = 0x03,
-    CMD_STREAM_OFF= 0x04
-} USART_Command;
-
-typedef struct {
-    USART_Command cmd;
-    uint8_t payload[FRAME_MAX_LEN];
-    uint8_t len;
-} USART_Message;
-
+/**
+ * @brief Mengirim pesan terstruktur keluar melalui protokol USART.
+ * @param dev Pointer ke konteks hardware UART
+ * @param msg Pointer ke struktur pesan yang akan dikirim
+ * @return 1 jika sukses, 0 jika gagal
+ */
 int UART_Protocol_Send(UART_Context *dev, USART_Message *msg);
-int UART_Protocol_Receive(UART_Context *dev, USART_Message *msg);
-int UART_ProtocolDMA_Parse(USART_Frame *frame, USART_Message *msg);
+
+/**
+ * @brief Menerjemahkan frame datalink menjadi CommandEvent menggunakan alokasi heap (pvPortMalloc).
+ * @param frame Pointer ke bingkai datalink mentah yang valid
+ * @param out_event Pointer ke struct CommandEvent_t tujuan
+ * @return true jika parsing sukses, false jika gagal atau memori habis
+ */
+bool UART_Protocol_ParseFrame(USART_Frame *frame, CommandEvent_t *out_event);
 
 #endif /* USART_PROTOCOL_H_ */

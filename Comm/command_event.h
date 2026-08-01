@@ -1,34 +1,37 @@
-/*
- * command_event.h
- * Berisi definisi struktur data event untuk sistem antrean perintah (Command Queue)
+/**
+ * @file command_event.h
+ * @brief Kontrak Data FSM Utama (Union Memory Pooling & Zero-Copy)
  */
-
 #ifndef INC_TASKS_COMMAND_EVENT_H_
 #define INC_TASKS_COMMAND_EVENT_H_
 
 #include <stdint.h>
 #include <stdbool.h>
 
-// Enumerasi tipe event yang masuk ke sistem
 typedef enum {
-    EVENT_TYPE_KEYPAD,
-    EVENT_TYPE_BLUETOOTH_CSV  // Tipe event baru untuk string CSV dari Bluetooth
-} EventType;
+    CMD_ACTIVATE_PUMP = 0x01,
+    CMD_WRITE_SCHED   = 0x02,
+    CMD_BLUETOOTH_CSV = 0x03 // String mentah dari luar
+} CommandID_t;
 
-// Struktur data utama penampung pesan perintah
+/**
+ * @brief Struktur data utama penampung pesan (Maksimal 8 Byte di RAM)
+ * MENGAPA UNION? Agar antrean FSM berukuran kecil dan konstan,
+ * menghemat puluhan byte per slot antrean.
+ */
 typedef struct {
-    EventType type;
+    CommandID_t cmd_id;
     union {
         struct {
-            char key;
-            bool longPress;
-        } keypad;
+            uint8_t actuator_id;
+            bool state;
+        } pump;
 
         struct {
-            char buffer[64];  // Menampung string CSV (misal: "RTC,26,06...")
-            uint8_t len;      // Panjang karakter string
-        } bluetooth;
-    } data;
-} CommandEvent;
+            char* str_ptr;  // ZERO-COPY: Hanya menyimpan alamat memori dari heap
+            uint16_t len;
+        } csv_data;
+    } payload;
+} CommandEvent_t;
 
 #endif /* INC_TASKS_COMMAND_EVENT_H_ */

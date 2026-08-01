@@ -2,7 +2,8 @@
  * @file    app_task.c
  * @brief   Modul Task Utama Aplikasi (State Machine) untuk Smart Garden.
  * @details Mengelola FSM Irigasi Otomatis dan Sekuensial Pemupukan berbasis
- * Jadwal File SD Card dan sinkronisasi RTC (DS3231).
+ * Jadwal File SD Card dan sinkronisasi RTC (DS3231) dengan kepatuhan Zero-Blocking
+ * serta manajemen memori Pinjam-Pakai (Zero-Copy Queue).
  * @author  ferry / Senior Embedded Systems Engineer
  * @date    22 Jul 2026
  */
@@ -14,6 +15,8 @@
 #include <stdio.h>
 #include <storage_wrapper.h>
 #include "app_task.h"
+#include "command_event.h" // Menggunakan kontrak data terpusat berbasis Zero-Copy
+
 // Include actuator, sensor
 #include "actuator/actuator_driver.h"
 #include "flowmeter/flowmeter_driver.h"
@@ -32,10 +35,6 @@
 I2C_RTCDevice DS3231_Ctx;
 I2C_EEPROMDevice Eeprom_Ctx;
 SPI_StorageDevice SDCard_Ctx;
-
-typedef struct {
-	SPI_StorageDevice *logger;
-} AppParams;
 
 /* --- Definisi Alur Struktur State Machine --- */
 typedef enum {
@@ -61,7 +60,6 @@ FlowSensor_t sensor_inlet;
 FlowSensor_t sensor_outlet;
 FlowSensor_t sensor_fert;
 
-/* --- Eksternal Periferal dari Core Inisialisasi Perangkat Keras --- */
 /* --- Eksternal Periferal dari Core Inisialisasi Perangkat Keras --- */
 extern ADC_HandleTypeDef hadc1;
 extern TIM_HandleTypeDef htim2;
@@ -238,11 +236,9 @@ void HandleFertilizationRoutine(void) {
 static void vTaskApp(void *pvParameters) {
     (void)pvParameters;
 
-    //AppParams *params = (AppParams*)pvParameters;
-    //SPI_StorageDevice *Logger_Ctx = params->logger;
-    CommandEvent evt;
-    WtrLvl_Event_t wtrEvt;
-    TickType_t last_rtc_check = 0;
+    CommandEvent_t *evt_ptr = NULL; /* ZERO-COPY: Menerima Alamat Pointer dari Kurir Komunikasi */
+	WtrLvl_Event_t wtrEvt;
+	TickType_t last_rtc_check = 0;
 
     // ========================================================
     // TAMBAHKAN INISIALISASI DRIVER SENSOR, RTC, EEPROM, SDCARD  DI SINI
@@ -252,14 +248,9 @@ static void vTaskApp(void *pvParameters) {
     // 2. Inisialisasi Sensor Suhu DS18B20 (Sesuaikan Port & Pin dengan CubeMX Anda)
     TempSensor_Init(TEMP_GPIO_Port, TEMP_Pin);
     // 3. Inisialisasi Flowmeter
-    // 3. Inisialisasi Flowmeter
-        /* MENGAPA DIPERBAIKI:
-           - Menyertakan Logical ID (FLOW_SENSOR_INLET, dll) sesuai 5 parameter fungsi agar sistem kalibrasi berjalan tepat sasaran.
-           - Menyesuaikan handle hardware (&htim5, &htim9, &htim2) agar selaras dengan skema Pinout Hardware di spesifikasi (PA1, PA2, PA15).
-        */
-        FlowSensor_Init(&sensor_inlet,  FLOW_SENSOR_INLET,  sys_calib.fm_inlet_pulse_per_liter,  &htim5, TIM_CHANNEL_2);
-        FlowSensor_Init(&sensor_outlet, FLOW_SENSOR_OUTLET, sys_calib.fm_outlet_pulse_per_liter, &htim9, TIM_CHANNEL_1);
-        FlowSensor_Init(&sensor_fert,   FLOW_SENSOR_FERT,   sys_calib.fm_fert_pulse_per_liter,   &htim2, TIM_CHANNEL_1);
+	FlowSensor_Init(&sensor_inlet,  FLOW_SENSOR_INLET,  sys_calib.fm_inlet_pulse_per_liter,  &htim5, TIM_CHANNEL_2);
+	FlowSensor_Init(&sensor_outlet, FLOW_SENSOR_OUTLET, sys_calib.fm_outlet_pulse_per_liter, &htim9, TIM_CHANNEL_1);
+	FlowSensor_Init(&sensor_fert,   FLOW_SENSOR_FERT,   sys_calib.fm_fert_pulse_per_liter,   &htim2, TIM_CHANNEL_1);
     // 4. Inisialisasi Actuator
     Actuator_Init();
     // 5. Inisialisasi Water Level
@@ -291,24 +282,47 @@ static void vTaskApp(void *pvParameters) {
         QueueSetMemberHandle_t activatedQueue = xQueueSelectFromSet(appQueueSet, pdMS_TO_TICKS(10));
 
         if (activatedQueue == appQueue) {
-            if (xQueueReceive(appQueue, &evt, 0)) {
-                switch (evt.type) {
-                    case EVENT_TYPE_TRIGGER_IRRIG:
-                        if (currentIrrState == IRR_STATE_IDLE) currentIrrState = IRR_STATE_START;
-                        break;
-                    default: break;
-                }
-            }
-        }
-        else if (activatedQueue == wtrLvlQueue) {
-            if (xQueueReceive(wtrLvlQueue, &wtrEvt, 0)) {
-                if (wtrEvt.sensor == LVL_TANK_EMPTY && wtrEvt.is_reached) {
-                    if (currentFertState == FERT_STATE_BUANG || currentFertState == FERT_STATE_MIXING) {
-                         currentFertState = FERT_STATE_SAFETY_ERR;
-                    }
-                }
-            }
-        }
+			/* ===================================================================
+			 * PENERAPAN POLA PINJAM-PAKAI (ZERO-COPY QUEUE RECEIVE & FREE)
+			 * Menerima alamat pointer dari antrean FSM utama, memproses isinya,
+			 * lalu WAJIB membebaskan memorinya untuk mencegah Memory Leak.
+			 * =================================================================== */
+			if (xQueueReceive(appQueue, &evt_ptr, 0) == pdPASS && evt_ptr != NULL) {
+
+				switch (evt_ptr->cmd_id) {
+					case CMD_ACTIVATE_PUMP:
+						if (currentIrrState == IRR_STATE_IDLE) {
+							currentIrrState = IRR_STATE_START;
+						}
+						break;
+
+					case CMD_BLUETOOTH_CSV:
+						// Contoh memproses string data mentah dari Bluetooth/Eksternal
+						printf("[APP] Menerima data CSV dari Komunikasi: %s\n", evt_ptr->payload.csv_data.str_ptr);
+
+						/* WAJIB FREE payload alokasi string internal terlebih dahulu */
+						if (evt_ptr->payload.csv_data.str_ptr != NULL) {
+							vPortFree(evt_ptr->payload.csv_data.str_ptr);
+						}
+						break;
+
+					default:
+						break;
+				}
+
+				/* BEBASKAN POINTER STRUCT UTAMA AGAR TIDAK TERJADI HARDFAULT / LEAK */
+				vPortFree(evt_ptr);
+			}
+		}
+		else if (activatedQueue == wtrLvlQueue) {
+			if (xQueueReceive(wtrLvlQueue, &wtrEvt, 0)) {
+				if (wtrEvt.sensor == LVL_TANK_EMPTY && wtrEvt.is_reached) {
+					if (currentFertState == FERT_STATE_BUANG || currentFertState == FERT_STATE_MIXING) {
+						 currentFertState = FERT_STATE_SAFETY_ERR;
+					}
+				}
+			}
+		}
 
         /* --- SINKRONISASI JADWAL VIA RTC (Setiap 5 Detik Sekali) --- */
         /* MENGAPA 5 DETIK: Membaca chip RTC DS3231 via bus I2C terlalu sering di dalam loop cepat (10ms)
@@ -350,6 +364,8 @@ static void vTaskApp(void *pvParameters) {
 }
 
 void APP_TaskCreate(UBaseType_t priority){
+	/* Antrean FSM dikonfigurasi menampung Pointer (sizeof(CommandEvent_t*))
+	   demi menjaga ukuran antrean konstan O(1) */
     appQueue = xQueueCreate(10, sizeof(CommandEvent));
     if (appQueue != NULL) {
         xTaskCreate(vTaskApp, "AppTask", 1024, NULL, priority, &appTaskHandle);

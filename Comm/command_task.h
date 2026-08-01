@@ -1,33 +1,34 @@
-/*
- * command_task.h
+/**
+ * @file command_task.h
+ * @brief Antarmuka Kurir Universal (Command Task)
+ * * Mengelola task FreeRTOS yang mendengarkan interupsi data masuk
+ * secara asinkron tanpa membebani siklus CPU.
+ *
  *
  *  Created on: 13 May 2026
  *      Author: ferry
  */
 
-#ifndef INC_TASKS_COMMAND_TASK_H_
-#define INC_TASKS_COMMAND_TASK_H_
-
+#ifndef COMMAND_TASK_H_
+#define COMMAND_TASK_H_
 
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
-#include "usart_protocol.h" // Sesuai struktur data Anda
-#include "uart_wrapper.h"   // Untuk UART_Context
+#include "uart_wrapper.h"
 
-// ---------------------------------------------------------
-// [TIDAK ADA LAGI EXTERN QUEUE DI SINI]
-// Karena queue sudah dienkapsulasi (static) di dalam .c
-// ---------------------------------------------------------
-
-// Prototipe Fungsi Pembuat Task (Sudah ditambahkan parameter Queue)
+/**
+ * @brief Menginisialisasi dan membuat Task penerima komunikasi (Command Task).
+ * @param priority Prioritas Task FreeRTOS
+ * @param phy_device Pointer ke konteks hardware UART fisik
+ * @param app_queue Handle antrean (Queue) FSM utama penerima event
+ */
 void CMD_AppTaskCreate(UBaseType_t priority, UART_Context *phy_device, QueueHandle_t app_queue);
 
-// Prototipe Fungsi Task Utama
-void CMD_TaskTx(void *pvParameters);
+/**
+ * @brief Task FreeRTOS independen penanganan penerimaan data (Rx).
+ * @param pvParameters Parameter bawaan task RTOS
+ */
 void CMD_TaskRx(void *pvParameters);
 
-// Prototipe Fungsi Pengirim Pesan (Nama diubah agar tidak bentrok dengan wrapper)
-BaseType_t CMD_Task_SendMessage(const USART_Message *msg);
-
-#endif /* INC_TASKS_COMMAND_TASK_H_ */
+#endif /* COMMAND_TASK_H_ */

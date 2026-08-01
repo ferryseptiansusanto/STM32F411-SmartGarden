@@ -1,6 +1,7 @@
-/*
- * spi_wrapper.h
- * Refactored for Thread-Safety and Clean API
+/**
+ * @file    spi_wrapper.h
+ * @brief   Driver Abstraksi Layer 1 untuk Komunikasi SPI (Zero-Blocking & Thread-Safe).
+ * @note    Didesain untuk FreeRTOS. Mendukung DMA dan proteksi Mutex tingkat Bus.
  */
 #ifndef SPI_WRAPPER_H
 #define SPI_WRAPPER_H
@@ -9,8 +10,6 @@
 #include "FreeRTOS.h"
 #include "semphr.h"
 #define SPI_TIMEOUT_MS 1000
-
-extern SPI_HandleTypeDef hspi1;
 
 typedef enum {
     SPI_OK = 0,
@@ -23,12 +22,15 @@ typedef enum {
     SPI_MODE_DMA
 } SPI_Mode;
 
+/**
+ * @brief Struktur konteks SPI yang menyimpan Handle perangkat keras dan OS Primitives.
+ */
 typedef struct {
     SPI_HandleTypeDef *hspi;
-    SemaphoreHandle_t tx_sem;
-    SemaphoreHandle_t rx_sem;
-    SemaphoreHandle_t txrx_sem;
-    SemaphoreHandle_t mutex;     // Tambahan Mutex Wajib untuk Shared Bus SPI
+    SemaphoreHandle_t tx_sem;     /**< Semaphore untuk sinkronisasi TX Selesai */
+    SemaphoreHandle_t rx_sem;     /**< Semaphore untuk sinkronisasi RX Selesai */
+    SemaphoreHandle_t txrx_sem;   /**< Semaphore untuk sinkronisasi TX/RX Selesai */
+    SemaphoreHandle_t mutex;      /**< Mutex pemersatu Bus SPI (Mencegah Data Tearing) */
 } SPI_Context;
 
 extern SPI_Context spi1_ctx;

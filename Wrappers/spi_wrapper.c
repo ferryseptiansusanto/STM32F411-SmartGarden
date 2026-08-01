@@ -1,21 +1,24 @@
-/*
- * spi_wrapper.c
- * Refactored for Thread-Safety and Dynamic ISR
+/**
+ * @file    spi_wrapper.c
+ * @brief   Implementasi driver abstraksi SPI.
  */
 
 #include "spi_wrapper.h"
 #include "delay.h"
 #include <stdio.h>
 
-extern SPI_HandleTypeDef hspi1;
-
 // Inisialisasi awal. Pastikan cs_port dan cs_pin diisi di main.c nanti sesuai perangkatnya.
 SPI_Context spi1_ctx = { &hspi1, NULL, NULL, NULL, NULL };
+
+extern SPI_HandleTypeDef hspi1;
 
 // Registri dinamis untuk Callback ISR
 static SPI_Context* spi_registry[] = { &spi1_ctx };
 #define SPI_REGISTRY_COUNT (sizeof(spi_registry) / sizeof(spi_registry[0]))
 
+/**
+ * @brief Inisialisasi OS Primitives untuk SPI.
+ */
 void SPI_Init(SPI_Context *ctx) {
     if (ctx == NULL) return;
 
@@ -25,7 +28,7 @@ void SPI_Init(SPI_Context *ctx) {
     ctx->mutex    = xSemaphoreCreateMutex(); // Buat Mutex
 
     if (!ctx->tx_sem || !ctx->rx_sem || !ctx->txrx_sem || !ctx->mutex) {
-        printf("SPI Gagal alokasi OS primitive!\n");
+		printf("SPI Gagal alokasi OS primitive!\n"); // Fail-Safe monitoring
     }
 }
 
@@ -60,7 +63,7 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi) {
             break;
         }
     }
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    YIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 // Handler Error Wajib agar Task tidak hang
@@ -68,6 +71,7 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     for (size_t i = 0; i < SPI_REGISTRY_COUNT; i++) {
         if (hspi == spi_registry[i]->hspi) {
+        	// Mencegah Task terblokir selamanya jika hardware SPI error di tengah jalan
             if (spi_registry[i]->tx_sem) xSemaphoreGiveFromISR(spi_registry[i]->tx_sem, &xHigherPriorityTaskWoken);
             if (spi_registry[i]->rx_sem) xSemaphoreGiveFromISR(spi_registry[i]->rx_sem, &xHigherPriorityTaskWoken);
             if (spi_registry[i]->txrx_sem) xSemaphoreGiveFromISR(spi_registry[i]->txrx_sem, &xHigherPriorityTaskWoken);
@@ -77,6 +81,10 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi) {
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
+/**
+ * @brief  Mengirim data via SPI.
+ * @note   Pastikan SPI_Select_CS sudah dipanggil (dan memegang Mutex) sebelum ini.
+ */
 // --- Transmit ---
 SPI_Status SPI_Transmit(SPI_Context *ctx, SPI_Mode mode, const uint8_t *data, uint16_t size) {
     if (mode == SPI_MODE_DMA) {
@@ -110,18 +118,26 @@ SPI_Status SPI_TransmitReceive(SPI_Context *ctx, SPI_Mode mode, const uint8_t *t
     return SPI_OK;
 }
 
-// --- CS Control (Dilengkapi Proteksi Mutex) ---
+/**
+ * @brief  Memilih (Chip Select) perangkat SPI dan MENGUNCI BUS.
+ * @note   MENGAPA KITA MENGUNCI MUTEX DI SINI? Karena transaksi SPI (misal: baca sektor SD Card)
+ * terdiri dari beberapa kali panggilan SPI_Transmit dan SPI_Receive. Mutex harus ditahan
+ * sejak CS LOW hingga CS HIGH agar Task lain tidak menyela di tengah transaksi.
+ */
 void SPI_Select_CS(SPI_Context *ctx, GPIO_TypeDef *port, uint16_t pin) {
-	if (ctx == NULL || ctx->mutex == NULL) return;
+    if (ctx == NULL || ctx->mutex == NULL) return;
 
-	// Ambil Mutex. Jika sedang dipakai task lain, task ini sleep di sini.
-	xSemaphoreTake(ctx->mutex, portMAX_DELAY);
-
-	if (port != NULL) {
-		HAL_GPIO_WritePin(port, pin, GPIO_PIN_RESET); // Active LOW
-	}
+    // Tunggu maksimal 2000ms. Mencegah Deadlock selamanya jika Mutex nyangkut (Fail-Safe)
+    if (xSemaphoreTake(ctx->mutex, pdMS_TO_TICKS(2000)) == pdTRUE) {
+        if (port != NULL) {
+            HAL_GPIO_WritePin(port, pin, GPIO_PIN_RESET);
+        }
+    }
 }
 
+/**
+ * @brief  Melepas (Chip Select) perangkat SPI dan MEMBUKA KUNCI BUS.
+ */
 void SPI_Unselect_CS(SPI_Context *ctx, GPIO_TypeDef *port, uint16_t pin) {
 	if (ctx == NULL || ctx->mutex == NULL) return;
 
@@ -137,21 +153,22 @@ void SPI_Unselect_CS(SPI_Context *ctx, GPIO_TypeDef *port, uint16_t pin) {
 	xSemaphoreGive(ctx->mutex);
 }
 
+/**
+ * @brief  Mengirim dummy clocks (biasanya untuk inisialisasi awal SD Card).
+ */
 void SPI_SendDummyClocks(SPI_Context *ctx, GPIO_TypeDef *port, uint16_t pin, uint16_t count){
-	if (ctx == NULL || ctx->mutex == NULL) return;
+    if (ctx == NULL || ctx->mutex == NULL) return;
 
-	    xSemaphoreTake(ctx->mutex, portMAX_DELAY);
-
-	    if (port != NULL) {
-	        HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET); // Pastikan CS HIGH
-	    }
-
-	    uint8_t dummy = 0xFF;
-	    for (uint16_t i = 0; i < count; i++) {
-	        HAL_SPI_Transmit(ctx->hspi, &dummy, 1, 100);
-	    }
-
-	    xSemaphoreGive(ctx->mutex);
+    if (xSemaphoreTake(ctx->mutex, pdMS_TO_TICKS(2000)) == pdTRUE) {
+        if (port != NULL) {
+            HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET);
+        }
+        uint8_t dummy = 0xFF;
+        for (uint16_t i = 0; i < count; i++) {
+            HAL_SPI_Transmit(ctx->hspi, &dummy, 1, 100);
+        }
+        xSemaphoreGive(ctx->mutex);
+    }
 }
 
 // --- Speed Control ---

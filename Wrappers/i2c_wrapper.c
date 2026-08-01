@@ -1,5 +1,6 @@
-/*
- * i2c_wrapper.c
+/**
+ * @file    i2c_wrapper.c
+ * @brief   Implementasi driver abstraksi I2C.
  *
  *  Created on: 9 May 2026
  *      Author: ferry
@@ -135,15 +136,20 @@ I2C_Status I2C_Receive(I2C_Context *ctx, uint16_t address,
     return status;
 }
 
-// --- TransmitReceive (REFACTORED UNTUK MENCEGAH RACE CONDITION) ---
+/**
+ * @brief  Transmit lalu Receive pada I2C dengan Mutex tak terputus.
+ * @note   MENGAPA KITA GABUNG TX DAN RX? Jika Task A mengirim "Register Address" ke sensor,
+ * kita tidak boleh melepas Mutex sebelum Task A selesai membaca datanya. Jika dilepas,
+ * Task B bisa menyela dan mengirim alamat yang berbeda, merusak data Task A (Race Condition).
+ */
 I2C_Status I2C_TransmitReceive(I2C_Context *ctx, uint16_t address, I2C_Mode mode,
                                uint8_t *txData, uint16_t txSize, uint32_t timeouttx,
                                uint8_t *rxData, uint16_t rxSize, uint32_t timeoutrx) {
 
     I2C_Status status = I2C_OK;
 
-    // Mutex dikunci sekali untuk seluruh transaksi (Tx lanjut Rx)
-    if (xSemaphoreTake(ctx->mutex, portMAX_DELAY) == pdTRUE) {
+    // Fail-Safe: Gunakan timeout maksimum 2 detik daripada blokir permanen
+    if (xSemaphoreTake(ctx->mutex, pdMS_TO_TICKS(2000)) == pdTRUE) {
 
         // --- PROSES TX ---
         if (mode == I2C_MODE_IT) {
@@ -156,7 +162,7 @@ I2C_Status I2C_TransmitReceive(I2C_Context *ctx, uint16_t address, I2C_Mode mode
             if (HAL_I2C_Master_Transmit(ctx->hi2c, address, txData, txSize, timeouttx) != HAL_OK) status = I2C_ERROR;
         }
 
-        // --- PROSES RX (Hanya jika TX sukses) ---
+        // --- PROSES RX (Hanya dieksekusi jika TX sukses) ---
         if (status == I2C_OK) {
             if (mode == I2C_MODE_IT) {
                 if (HAL_I2C_Master_Receive_IT(ctx->hi2c, address, rxData, rxSize) != HAL_OK) status = I2C_ERROR;
@@ -169,7 +175,7 @@ I2C_Status I2C_TransmitReceive(I2C_Context *ctx, uint16_t address, I2C_Mode mode
             }
         }
 
-        // Recovery jika salah satu gagal
+        // Fail-Safe: Pulihkan I2C jika chip macet (biasa terjadi karena interupsi daya listrik)
         if (status == I2C_TIMEOUT) {
             I2C_Recovery(ctx->hi2c);
         }
@@ -226,6 +232,13 @@ void I2C_ScanBus(I2C_HandleTypeDef *hi2c) {
     // Tetap sama
 }
 
+/**
+ * @brief  Sistem Pemulihan Mandiri (Auto-Recovery) Bus I2C.
+ * @note   MENGAPA INI PENTING? Jika MCU di-reset saat perangkat slave (contoh: EEPROM) sedang
+ * menahan SDA ke posisi LOW, jalur I2C akan terkunci mati selamanya.
+ * Fungsi ini mengubah pin SCL menjadi GPIO biasa, lalu mengirimkan 9 detak jam (clock)
+ * untuk memaksa Slave melepaskan jalur SDA, memastikan mesin (Fail-Safe).
+ */
 I2C_Status I2C_Recovery(I2C_HandleTypeDef *hi2c) {
     if (hi2c == NULL) return I2C_ERROR;
     printf("I2C Recovery triggered...\r\n");

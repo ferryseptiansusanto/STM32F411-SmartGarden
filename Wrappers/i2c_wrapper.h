@@ -1,5 +1,7 @@
-/*
- * i2c_wrapper.h
+/**
+ * @file    i2c_wrapper.h
+ * @brief   Driver Abstraksi Layer 1 untuk I2C (Zero-Blocking & Thread-Safe).
+ * @note    Termasuk sistem perlindungan Bus-Lock (Data Tearing) dan Auto-Recovery.
  *
  *  Created on: 9 May 2026
  *      Author: ferry
@@ -10,10 +12,11 @@
 
 
 #include "main.h"
-#define I2C_TIMEOUT_MS 1000
 #include "FreeRTOS.h"
 #include "semphr.h"
 #include <stdbool.h>
+
+#define I2C_TIMEOUT_MS 1000
 
 extern I2C_HandleTypeDef hi2c1;
 extern I2C_HandleTypeDef hi2c2;

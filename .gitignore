@@ -1,6 +1,7 @@
 Debug/
 Release/
 build/
+.settings/
 *.elf
 *.hex
 *.bin

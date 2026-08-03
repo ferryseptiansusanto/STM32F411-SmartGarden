@@ -12,19 +12,23 @@
 
 #include "board_config.h"
 
+
 /* ========================================================================== */
 /* BATASAN MEMORI & BUFFER PARSING                        */
 /* ========================================================================== */
 
+/* Jumlah pupuk dinamis sesuai dengan jumlah Valve yang disolder di board */
+#define RECIPE_NUM_FERTILIZERS         BOARD_NUM_FERTILIZER_VALVES
+
 /**
  * @brief Ukuran maksimal nama resep dalam karakter (termasuk null-terminator).
  */
-#define RECIPE_CFG_MAX_NAME_LEN         16
+#define RECIPE_MAX_NAME_LEN         32
 
 /**
  * @brief Ukuran buffer lokal temporer untuk mengiris tag pupuk.
  */
-#define RECIPE_CFG_FERT_BUF_SIZE        80
+#define RECIPE_FERT_BUF_SIZE        64
 
 /* ========================================================================== */
 /* BATASAN KEAMANAN AGRONOMI & HARDWARE (FAIL-SAFE)            */
@@ -34,18 +38,18 @@
  * @brief Volume maksimal satu jenis pupuk per penyiraman (ml).
  * @note  Fail-Safe: Mencegah over-fertilization jika terdapat salah ketik pada jadwal.
  */
-#define RECIPE_CFG_MAX_FERT_VOL_ML      2000
+#define RECIPE_MAX_FERT_VOL_ML      500
 
 /**
  * @brief Volume maksimal air baku per penyiraman (ml).
  * @note  Fail-Safe: Mencegah tangki pencampur luber (overflow).
  */
-#define RECIPE_CFG_MAX_WATER_VOL_ML     50000
+#define RECIPE_MAX_WATER_VOL_ML     2000
 
 /**
  * @brief Waktu maksimal motor pengaduk/mixer boleh aktif (detik).
  * @note  Fail-Safe: Mencegah motor mixer terbakar (overheating).
  */
-#define RECIPE_CFG_MAX_MIXING_TIME_SEC  600
+#define RECIPE_MAX_MIXING_TIME_SEC  600
 
 #endif /* MANAGERS_RECIPE_CONFIG_H_ */

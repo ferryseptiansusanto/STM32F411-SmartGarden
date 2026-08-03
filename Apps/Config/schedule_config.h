@@ -9,8 +9,6 @@
 #ifndef MANAGERS_SCHEDULE_CONFIG_H_
 #define MANAGERS_SCHEDULE_CONFIG_H_
 
-#include "board_config.h"
-
 /* ========================================================================== */
 /* KONFIGURASI FILE SD CARD & BUFFER                                          */
 /* ========================================================================== */

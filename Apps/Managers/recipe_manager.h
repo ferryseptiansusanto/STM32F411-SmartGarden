@@ -16,11 +16,6 @@
 #include "Config/recipe_config.h" /* Mengimpor semua batasan dari file config sub-modul */
 
 /**
- * @brief Jumlah pupuk yang dikelola merujuk pada jumlah valve di board.
- */
-#define NUM_FERTILIZERS BOARD_NUM_FERTILIZER_VALVES
-
-/**
  * @brief Struktur data matang dari sebuah resep pemupukan komplit.
  */
 typedef struct {

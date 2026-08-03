@@ -12,6 +12,9 @@
 #ifndef BOARD_CONFIG_H
 #define BOARD_CONFIG_H
 
+/* Mengawinkan Pinout otomatis CubeMX dengan konfigurasi lanjutan kita */
+#include "main.h"
+
 /* --- VERSI HARDWARE --- */
 #define HARDWARE_REVISION "V1.0"
 

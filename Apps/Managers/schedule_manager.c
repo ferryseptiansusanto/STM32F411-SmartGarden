@@ -122,7 +122,6 @@ bool ScheduleManager_GetDueSchedule(SchedType_t type, ScheduleItem_t* out_item,
 
     while (FatFsWrapper_ReadLine(&sched_file_ctx, line_buf, sizeof(line_buf))) {
         current_line++;
-
         SchedStatus_t line_status = ParseStatusFromLine(line_buf);
 
         /* Evaluasi jadwal yang masih PENDING atau tertahan URGENT */
@@ -193,7 +192,7 @@ bool ScheduleManager_UpdateStatus(SchedType_t type, uint32_t line_number, SchedS
     if (line_number == 0) return false;
 
     const char* src_file  = GetFileNameByType(type);
-    const char* temp_file = "temp_sched.txt";
+    const char* temp_file = SCHED_CFG_FILE_TEMP_SWAP; // Menggunakan makro Config
 
     char line_buf[SCHED_CFG_MAX_LINE_LEN];
     uint32_t current_line = 0;
@@ -202,10 +201,6 @@ bool ScheduleManager_UpdateStatus(SchedType_t type, uint32_t line_number, SchedS
         return false;
     }
 
-    /* MENGAPA TEMP-SWAP DIGUNAKAN:
-       FatFs tidak mendukung replace substring di tengah file secara atomic.
-       Membuat temp file lalu menimpa file utama adalah teknik fail-safe
-       mencegah korupsi data jika mati listrik saat penulisan berlangsung. */
     FileContext_t temp_ctx = { .owner_id = SCHED_CFG_OWNER_ID };
     if (!FatFsWrapper_Open(&temp_ctx, temp_file, FA_CREATE_ALWAYS | FA_WRITE)) {
         FatFsWrapper_Close(&sched_file_ctx);
@@ -216,7 +211,6 @@ bool ScheduleManager_UpdateStatus(SchedType_t type, uint32_t line_number, SchedS
         current_line++;
 
         if (current_line == line_number) {
-            /* Cari letak "status[" lalu ganti statusnya */
             char* status_ptr = strstr(line_buf, "status[");
             if (status_ptr != NULL) {
                 char prefix_buf[SCHED_CFG_MAX_LINE_LEN];

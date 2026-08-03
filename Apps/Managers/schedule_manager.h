@@ -14,6 +14,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h> // Untuk tipe size_t
 #include "Config/schedule_config.h"
 #include "recipe_manager.h"
 

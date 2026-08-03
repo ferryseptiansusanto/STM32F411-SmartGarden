@@ -7,20 +7,15 @@
  */
 
 #include "log_manager.h"
-#include "ds3231_wrapper.h"   /* Untuk menarik timestamp FSM */
-#include "fatfs_wrapper.h"    /* Untuk mengirim string matang ke SD Card via Mutex */
+#include "log_config.h"       /* <-- BARU: Menarik konfigurasi terpusat */
+#include "ds3231_wrapper.h"
+#include "fatfs_wrapper.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
 
-/* File target baku sesuai spesifikasi Dokumen 6 */
-static const char* LOG_FILENAME = "log_sistem.txt";
-
 /* Konteks Mutlak: Setiap Manager punya "Identitas" antrean untuk akses SD Card */
 static FileContext_t log_file_ctx;
-
-/* Maksimal karakter dalam 1 baris log untuk menjaga efisiensi ukuran Stack RTOS */
-#define MAX_LOG_LENGTH 128
 
 bool LogManager_Init(void) {
     /* MENGAPA CONTEXT DIBUTUHKAN:
@@ -42,6 +37,7 @@ static const char* LogManager_LevelToStr(LogLevel_t level) {
 }
 
 bool LogManager_Write(LogLevel_t level, const char* format, ...) {
+    /* Memori dilindungi secara dinamis oleh makro dari log_config.h */
     char log_buffer[MAX_LOG_LENGTH];
     char message_buffer[80];
     DS3231_DateTime now;
@@ -52,18 +48,13 @@ bool LogManager_Write(LogLevel_t level, const char* format, ...) {
         memset(&now, 0, sizeof(now));
     }
 
-    /* 2. MENGOLAH FORMAT PESAN DINAMIS (Variadic Arguments)
-       MENGAPA vsnprintf: Kita WAJIB membatasi jumlah karakter maksimal yang dimasukkan
-       ke message_buffer untuk mencegah serangan Buffer Overflow atau Stack Corruption
-       yang dapat memicu HardFault pada ARM Cortex-M4. */
+    /* 2. MENGOLAH FORMAT PESAN DINAMIS (Variadic Arguments) */
     va_list args;
     va_start(args, format);
     vsnprintf(message_buffer, sizeof(message_buffer), format, args);
     va_end(args);
 
-    /* 3. MERAKIT STRING LOG FINAL
-       Format: [YYYY-MM-DD HH:MM:SS] [LEVEL] Pesan
-       Contoh: [2026-08-03 10:45:00] [CRIT] Tangki Kering, Pompa Utama Dimatikan! */
+    /* 3. MERAKIT STRING LOG FINAL */
     snprintf(log_buffer, sizeof(log_buffer), "[%04d-%02d-%02d %02d:%02d:%02d] [%s] %s\n",
              now.date.year, now.date.month, now.date.day,
              now.time.hours, now.time.minutes, now.time.seconds,
@@ -71,7 +62,7 @@ bool LogManager_Write(LogLevel_t level, const char* format, ...) {
              message_buffer);
 
     /* 4. MELEMPAR STRING MATANG KE LAPISAN WRAPPER
-       Tugas Log Manager selesai di sini. FatFs Wrapper akan mengambil alih gembok Mutex
-       dan melakukan operasi f_open, f_write, dan f_close secara aman di latar belakang. */
-    return FatFsWrapper_AppendText(&log_file_ctx, LOG_FILENAME, log_buffer);
+       Tugas Log Manager selesai di sini. Menggunakan makro LOG_SYSTEM_FILENAME
+       agar kebal dari hardcoding lokal. */
+    return FatFsWrapper_AppendText(&log_file_ctx, LOG_SYSTEM_FILENAME, log_buffer);
 }

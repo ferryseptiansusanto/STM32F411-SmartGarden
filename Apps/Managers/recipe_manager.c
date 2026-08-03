@@ -1,52 +1,104 @@
-/*
- * recipe_manager.c
+/**
+ * @file    recipe_manager.c
+ * @brief   Implementasi parser teks resep Multi-Pupuk (Zero-Blocking, No Heap/Malloc).
  *
- *  Created on: 22 Jul 2026
- *      Author: ferry
+ * Created on: 3 Aug 2026
+ * Author: ferry
  */
 
 #include "recipe_manager.h"
-#include "ff.h"
-#include <string.h>
 #include <stdio.h>
-#include <stdlib.h>
+#include <string.h>
 
-bool Recipe_Load(const char* recipe_name, FertRecipe_t* out_recipe) {
-    FIL fobj;
-    FRESULT fr;
-    char line[128];
-    bool found = false;
+void Recipe_Clear(FertRecipe_t* recipe) {
+    if (recipe == NULL) return;
+    memset(recipe, 0, sizeof(FertRecipe_t));
+}
 
-    /* MENGAPA CSV: Format CSV mudah diedit oleh end-user melalui Excel di komputer,
-       lalu tinggal dimasukkan kembali SD Card-nya ke mesin Smart Garden */
-    fr = f_open(&fobj, "recipes.csv", FA_READ);
-    if (fr != FR_OK) {
-        printf("[RECIPE] ERROR: Gagal membuka file recipes.csv (%d)\n", fr);
-        return false;
+bool Recipe_Parse(const char* raw_string, FertRecipe_t* out_recipe) {
+    if (raw_string == NULL || out_recipe == NULL) return false;
+
+    Recipe_Clear(out_recipe);
+
+    /* 1. BLOK 1: NAMA RESEP -> [FertKangkung] */
+    const char *p1 = strchr(raw_string, '[');
+    const char *p2 = p1 ? strchr(p1, ']') : NULL;
+    if (!p1 || !p2) return false;
+
+    size_t len = p2 - p1 - 1;
+    if (len >= RECIPE_CFG_MAX_NAME_LEN) len = RECIPE_CFG_MAX_NAME_LEN - 1;
+    strncpy(out_recipe->name, p1 + 1, len);
+    out_recipe->name[len] = '\0';
+
+    /* 2. BLOK 2: PUPUK -> [fert1:100,fert2:50ml,...] */
+    p1 = strchr(p2, '[');
+    p2 = p1 ? strchr(p1, ']') : NULL;
+    if (!p1 || !p2) return false;
+
+    char fert_buf[RECIPE_CFG_FERT_BUF_SIZE];
+    len = p2 - p1 - 1;
+    if (len >= sizeof(fert_buf)) return false;
+    strncpy(fert_buf, p1 + 1, len);
+    fert_buf[len] = '\0';
+
+    char *saveptr;
+    char *tok = strtok_r(fert_buf, ",", &saveptr);
+    while (tok != NULL) {
+        int id = 0, vol = 0;
+
+        if (sscanf(tok, "fert%d:%d", &id, &vol) == 2) {
+            if (id >= 1 && id <= NUM_FERTILIZERS && vol >= 0) {
+                out_recipe->fert_volumes[id - 1] = (uint16_t)vol;
+            }
+        }
+        tok = strtok_r(NULL, ",", &saveptr);
     }
 
-    /* Lewati baris header CSV (e.g., Name,Fert1,Fert2...) */
-    f_gets(line, sizeof(line), &fobj);
+    /* 3. BLOK 3: AIR -> [water:1000] */
+    p1 = strchr(p2, '[');
+    p2 = p1 ? strchr(p1, ']') : NULL;
+    if (!p1 || !p2) return false;
 
-    /* Baca baris demi baris hingga akhir file */
-    while (f_gets(line, sizeof(line), &fobj) && !found) {
-        char name[MAX_RECIPE_NAME];
-        float v1, v2, v3, v4, v5;
+    int water_val = 0;
+    if (sscanf(p1 + 1, "water:%d", &water_val) == 1 && water_val >= 0) {
+        out_recipe->water_volume = (uint16_t)water_val;
+    }
 
-        /* Parsing format CSV: nama_resep,v1,v2,v3,v4,v5 */
-        if (sscanf(line, "%[^,],%f,%f,%f,%f,%f", name, &v1, &v2, &v3, &v4, &v5) == 6) {
-            if (strcmp(name, recipe_name) == 0) {
-                strncpy(out_recipe->name, name, MAX_RECIPE_NAME);
-                out_recipe->target_vol_liter[0] = v1;
-                out_recipe->target_vol_liter[1] = v2;
-                out_recipe->target_vol_liter[2] = v3;
-                out_recipe->target_vol_liter[3] = v4;
-                out_recipe->target_vol_liter[4] = v5;
-                found = true;
-            }
+    /* 4. BLOK 4: MIXING -> [mixing:100] */
+    p1 = strchr(p2, '[');
+    p2 = p1 ? strchr(p1, ']') : NULL;
+    if (!p1 || !p2) return false;
+
+    int mix_val = 0;
+    if (sscanf(p1 + 1, "mixing:%d", &mix_val) == 1 && mix_val >= 0) {
+        out_recipe->mixing_time_sec = (uint16_t)mix_val;
+    }
+
+    return Recipe_Validate(out_recipe);
+}
+
+bool Recipe_Validate(const FertRecipe_t* recipe) {
+    if (recipe == NULL) return false;
+
+    /* Pengecekan Batas Maksimal berdasarkan Config Sub-Modul (Fail-Safe) */
+    for (uint8_t i = 0; i < NUM_FERTILIZERS; i++) {
+        if (recipe->fert_volumes[i] > RECIPE_CFG_MAX_FERT_VOL_ML) {
+            return false;
         }
     }
 
-    f_close(&fobj);
-    return found;
+    if (recipe->water_volume > RECIPE_CFG_MAX_WATER_VOL_ML) {
+        return false;
+    }
+
+    if (recipe->mixing_time_sec > RECIPE_CFG_MAX_MIXING_TIME_SEC) {
+        return false;
+    }
+
+    bool has_task = (recipe->water_volume > 0);
+    for (uint8_t i = 0; i < NUM_FERTILIZERS; i++) {
+        if (recipe->fert_volumes[i] > 0) has_task = true;
+    }
+
+    return has_task;
 }

@@ -1,30 +1,55 @@
 /**
  * @file    recipe_manager.h
- * @brief   Header file untuk manajemen resep pemupukan dari SD Card.
+ * @brief   Modul Parsing Multi-Pupuk (A/B Mix + Additives) & Pengadukan.
+ * @note    Thread-Safe, murni berjalan di RAM tanpa I/O fisik langsung.
  *
- *  Created on: 22 Jul 2026
- *      Author: ferry
+ * Created on: 3 Aug 2026
+ * Author: ferry
  */
-#ifndef RECIPE_MANAGER_H
-#define RECIPE_MANAGER_H
+
+#ifndef MANAGERS_RECIPE_MANAGER_H_
+#define MANAGERS_RECIPE_MANAGER_H_
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include "recipe_config.h" /* Mengimpor semua batasan dari file config sub-modul */
 
-#define NUM_FERTILIZERS 5
-#define MAX_RECIPE_NAME 16
+/**
+ * @brief Jumlah pupuk yang dikelola merujuk pada jumlah valve di board.
+ */
+#define NUM_FERTILIZERS BOARD_NUM_FERTILIZER_VALVES
 
+/**
+ * @brief Struktur data matang dari sebuah resep pemupukan komplit.
+ */
 typedef struct {
-    char name[MAX_RECIPE_NAME];
-    float target_vol_liter[NUM_FERTILIZERS];
+    char     name[MAX_RECIPE_NAME_LEN];   /**< Nama resep, misal "FertKangkung" */
+    uint16_t fert_volumes[NUM_FERTILIZERS]; /**< Array volume pupuk (Indeks 0 = fert1) */
+    uint16_t water_volume;                /**< Volume air baku (ml) */
+    uint16_t mixing_time_sec;             /**< Lama pengadukan motor mixer (detik) */
 } FertRecipe_t;
 
 /**
- * @brief   Mencari dan memuat data resep dari file SD Card berdasarkan nama resep.
- * @param   recipe_name Nama file resep atau text pencarian di dalam file resep.
- * @param   out_recipe Pointer menampung resep yang berhasil ditemukan.
- * @retval  bool true jika resep berhasil ditemukan dan dimuat.
+ * @brief   Mereset struktur data resep ke nilai 0/kosong.
+ * @param   recipe Pointer ke struktur resep.
  */
-bool Recipe_Load(const char* recipe_name, FertRecipe_t* out_recipe);
+void Recipe_Clear(FertRecipe_t* recipe);
 
-#endif /* RECIPE_MANAGER_H */
+/**
+ * @brief   Mengekstrak teks custom string menjadi struktur FertRecipe_t.
+ * Support handling optional "ml" suffix (e.g., "50" atau "50ml").
+ * @param   raw_string String sumber (e.g. "[Name][fert1:100...][water:1000][mixing:100]")
+ * @param   out_recipe Pointer tempat menampung hasil ekstrak.
+ * @retval  bool true jika parsing sukses dan data valid secara batasan agronomi.
+ */
+bool Recipe_Parse(const char* raw_string, FertRecipe_t* out_recipe);
+
+/**
+ * @brief   Memvalidasi apakah nilai-nilai di dalam resep aman dieksekusi aktuator.
+ * @param   recipe Pointer ke resep yang akan diverifikasi.
+ * @retval  bool true jika aman.
+ */
+bool Recipe_Validate(const FertRecipe_t* recipe);
+
+#endif /* MANAGERS_RECIPE_MANAGER_H_ */

@@ -39,4 +39,13 @@
 #define EEPROM_TOTAL_SIZE      8192     // Kapasitas 8KB
 */
 
+/* ========================================================================== */
+/* 4. AKTUATOR & VALVE HARDWARE BOUNDARIES                     */
+/* ========================================================================== */
+
+/**
+ * @brief Jumlah fisik valve/pompa pupuk terpasang pada papan sirkuit (VALVE_FERT1..5).
+ */
+#define BOARD_NUM_FERTILIZER_VALVES     5
+
 #endif /* BOARD_CONFIG_H */

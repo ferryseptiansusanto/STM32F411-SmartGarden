@@ -1,126 +1,280 @@
-/*
- * schedule_manager.c
+/**
+ * @file    schedule_manager.c
+ * @brief   Implementasi logika evaluasi jadwal, konversi waktu Epoch, dan Auto-Reschedule.
  *
- *  Created on: 22 Jul 2026
- *      Author: ferry
+ * Created on: 3 Aug 2026
+ * Author: ferry
  */
 
-
 #include "schedule_manager.h"
-#include "ff.h"
+#include "fatfs_wrapper.h"
+#include "log_manager.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
-static Schedule_t schedule_list[MAX_SCHEDULES];
-static int total_schedules = 0;
-static const char* sch_filename = "schedule.txt";
+/* Konteks Mutex terpisah untuk Schedule Manager (Aturan 6 & SoC) */
+static FileContext_t sched_file_ctx;
 
-bool Schedule_Init(void) {
-    FIL fobj;
-    FRESULT fr;
-    char line[128];
-    total_schedules = 0;
-
-    fr = f_open(&fobj, sch_filename, FA_READ);
-    if (fr != FR_OK) {
-        printf("[SCH] WARNING: File schedule.txt tidak ditemukan. Membuat berkas baru.\n");
-        /* Buat file kosong baru jika belum ada */
-        fr = f_open(&fobj, sch_filename, FA_CREATE_ALWAYS | FA_WRITE);
-        if (fr == FR_OK) f_close(&fobj);
-        return false;
-    }
-
-    /* Membaca baris demi baris, maksimal 20 jadwal */
-    while (total_schedules < MAX_SCHEDULES) {
-        /* Catat offset byte awal baris ini untuk kebutuhan pembaruan status (MarkAsFinish) nanti */
-        uint32_t current_offset = f_tell(&fobj);
-
-        if (!f_gets(line, sizeof(line), &fobj)) {
-            break;
-        }
-
-        int d, m, y, hr, min;
-        char rc_name[MAX_RECIPE_NAME];
-        char stat_str[16];
-
-        /* Format pembacaan teks: 22/07/2026 08:00 FERT_RECIPE1 onschedule */
-        if (sscanf(line, "%d/%d/%d %d:%d %s %s", &d, &m, &y, &hr, &min, rc_name, stat_str) >= 6) {
-            schedule_list[total_schedules].day = d;
-            schedule_list[total_schedules].month = m;
-            schedule_list[total_schedules].year = y;
-            schedule_list[total_schedules].hour = hr;
-            schedule_list[total_schedules].minute = min;
-            strncpy(schedule_list[total_schedules].recipe_name, rc_name, MAX_RECIPE_NAME);
-            schedule_list[total_schedules].file_pos = current_offset;
-
-            if (strcmp(stat_str, "finish") == 0) {
-                schedule_list[total_schedules].status = SCH_STATUS_FINISH;
-            } else {
-                schedule_list[total_schedules].status = SCH_STATUS_ONSCHEDULE;
-            }
-            total_schedules++;
-        }
-    }
-
-    f_close(&fobj);
-    printf("[SCH] Berhasil memuat %d jadwal dari SD Card.\n", total_schedules);
+bool ScheduleManager_Init(void) {
+    sched_file_ctx.owner_id = SCHED_CFG_OWNER_ID;
     return true;
 }
 
-bool Schedule_CheckTrigger(DS3231_DateTime current_time, char* out_recipe_name, int* out_sch_index) {
-    for (int i = 0; i < total_schedules; i++) {
-        /* Hanya periksa jadwal yang statusnya masih aktif (onschedule) */
-        if (schedule_list[i].status == SCH_STATUS_ONSCHEDULE) {
-            if (schedule_list[i].day    == current_time.date.day   &&
-                schedule_list[i].month  == current_time.date.month &&
-                schedule_list[i].year   == current_time.date.year  &&
-                schedule_list[i].hour   == current_time.time.hours &&
-                schedule_list[i].minute == current_time.time.minutes) {
+static const char* GetFileNameByType(SchedType_t type) {
+    return (type == SCHED_TYPE_FERTILIZER) ? SCHED_CFG_FILE_FERTILIZER : SCHED_CFG_FILE_IRRIGATION;
+}
 
-                strncpy(out_recipe_name, schedule_list[i].recipe_name, MAX_RECIPE_NAME);
-                *out_sch_index = i;
-                return true; /* Waktu RTC sinkron, trigger FSM Pupuk! */
+static const char* StatusToStr(SchedStatus_t status) {
+    switch (status) {
+        case SCHED_STATUS_PENDING: return "pending";
+        case SCHED_STATUS_SUCCESS: return "success";
+        case SCHED_STATUS_SKIPPED: return "skipped";
+        case SCHED_STATUS_URGENT:  return "urgent";
+        default:                   return "invalid";
+    }
+}
+
+static SchedStatus_t ParseStatusFromLine(const char* line) {
+    if (strstr(line, "status[pending]")) return SCHED_STATUS_PENDING;
+    if (strstr(line, "status[success]")) return SCHED_STATUS_SUCCESS;
+    if (strstr(line, "status[skipped]")) return SCHED_STATUS_SKIPPED;
+    if (strstr(line, "status[urgent]"))  return SCHED_STATUS_URGENT;
+    return SCHED_STATUS_INVALID;
+}
+
+uint32_t Schedule_DateTimeToEpoch(const char* time_str) {
+    if (time_str == NULL) return 0;
+
+    int yr = 0, mon = 0, day = 0, hr = 0, min = 0, sec = 0;
+    if (sscanf(time_str, "%d-%d-%d %d:%d:%d", &yr, &mon, &day, &hr, &min, &sec) != 6) {
+        return 0;
+    }
+
+    if (yr < 1970 || mon < 1 || mon > 12 || day < 1 || day > 31) return 0;
+
+    static const uint16_t days_before_month[] = {
+        0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
+    };
+
+    uint32_t y = (uint32_t)(yr - 1970);
+    uint32_t leap_years = (y + 1) / 4; // Koreksi tahun kabisat (1970-2099)
+    uint32_t days = y * 365 + leap_years + days_before_month[mon - 1] + (uint32_t)(day - 1);
+
+    if ((yr % 4 == 0) && mon > 2) {
+        days += 1;
+    }
+
+    return (days * 86400) + ((uint32_t)hr * 3600) + ((uint32_t)min * 60) + (uint32_t)sec;
+}
+
+void Schedule_EpochToDateTimeStr(uint32_t epoch, char* out_buf, size_t max_len) {
+    if (out_buf == NULL || max_len < 20) return;
+
+    uint32_t sec  = epoch % 60; epoch /= 60;
+    uint32_t min  = epoch % 60; epoch /= 60;
+    uint32_t hour = epoch % 24; epoch /= 24;
+
+    uint32_t days = epoch;
+    uint32_t year = 1970;
+
+    while (1) {
+        bool is_leap = (year % 4 == 0);
+        uint32_t days_in_year = is_leap ? 366 : 365;
+        if (days < days_in_year) break;
+        days -= days_in_year;
+        year++;
+    }
+
+    bool is_leap = (year % 4 == 0);
+    static const uint8_t days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    uint8_t month = 1;
+
+    for (uint8_t i = 0; i < 12; i++) {
+        uint8_t dim = days_in_month[i];
+        if (i == 1 && is_leap) dim = 29;
+        if (days < dim) {
+            month = i + 1;
+            break;
+        }
+        days -= dim;
+    }
+    uint8_t day = (uint8_t)days + 1;
+
+    snprintf(out_buf, max_len, "%04lu-%02u-%02u %02lu:%02lu:%02lu",
+             (unsigned long)year, month, day, (unsigned long)hour, (unsigned long)min, (unsigned long)sec);
+}
+
+bool ScheduleManager_GetDueSchedule(SchedType_t type, ScheduleItem_t* out_item,
+                                   uint32_t current_epoch_time, uint32_t max_delay_tolerance) {
+    if (out_item == NULL) return false;
+
+    const char* filename = GetFileNameByType(type);
+    char line_buf[SCHED_CFG_MAX_LINE_LEN];
+    uint32_t current_line = 0;
+
+    /* Lock & Open File via Wrapper */
+    if (!FatFsWrapper_Open(&sched_file_ctx, filename, FA_READ)) {
+        return false;
+    }
+
+    bool due_found = false;
+
+    while (FatFsWrapper_ReadLine(&sched_file_ctx, line_buf, sizeof(line_buf))) {
+        current_line++;
+
+        SchedStatus_t line_status = ParseStatusFromLine(line_buf);
+
+        /* Evaluasi jadwal yang masih PENDING atau tertahan URGENT */
+        if (line_status == SCHED_STATUS_PENDING || line_status == SCHED_STATUS_URGENT) {
+            uint32_t sched_epoch = Schedule_DateTimeToEpoch(line_buf);
+
+            if (sched_epoch > 0 && current_epoch_time >= sched_epoch) {
+                uint32_t delay_sec = current_epoch_time - sched_epoch;
+
+                memset(out_item, 0, sizeof(ScheduleItem_t));
+                out_item->epoch_time  = sched_epoch;
+                out_item->type        = type;
+                out_item->line_number = current_line;
+
+                /* Parse tag repeat[N] jika ada */
+                const char* rep_tag = strstr(line_buf, "repeat[");
+                if (rep_tag != NULL) {
+                    int rep_val = 0;
+                    if (sscanf(rep_tag, "repeat[%d]", &rep_val) == 1 && rep_val > 0) {
+                        out_item->repeat_days = (uint16_t)rep_val;
+                    }
+                }
+
+                /* Terapkan Aturan Toleransi Keterlambatan (Dokumen 10) */
+                if (line_status == SCHED_STATUS_PENDING && delay_sec > max_delay_tolerance) {
+                    out_item->status = SCHED_STATUS_URGENT;
+                    LogManager_Write(LOG_WARN, "Jadwal baris %lu terlambat %lus (> tolerance). Ubah ke URGENT.",
+                                     current_line, delay_sec);
+
+                    /* Tutup file dan lakukan update status ke URGENT di SD Card */
+                    FatFsWrapper_Close(&sched_file_ctx);
+                    ScheduleManager_UpdateStatus(type, current_line, SCHED_STATUS_URGENT);
+                    due_found = true;
+                    return true;
+                }
+
+                out_item->status = line_status;
+
+                /* Parsing Resep jika tipe Fertigasi */
+                if (type == SCHED_TYPE_FERTILIZER) {
+                    if (!Recipe_Parse(line_buf, &out_item->recipe)) {
+                        LogManager_Write(LOG_ERROR, "Resep corrupt pada baris %lu", current_line);
+                        continue; // Abaikan baris corrupt
+                    }
+                } else {
+                    /* Irigasi air murni: Parse tag water[W] */
+                    const char* w_tag = strstr(line_buf, "water[");
+                    if (w_tag != NULL) {
+                        int w_val = 0;
+                        if (sscanf(w_tag, "water[%d]", &w_val) == 1) {
+                            out_item->recipe.water_volume = (uint16_t)w_val;
+                            strncpy(out_item->recipe.name, "IrigasiAir", sizeof(out_item->recipe.name) - 1);
+                        }
+                    }
+                }
+
+                due_found = true;
+                break;
             }
         }
     }
-    return false;
+
+    FatFsWrapper_Close(&sched_file_ctx);
+    return due_found;
 }
 
-bool Schedule_MarkAsFinish(int sch_index) {
-    FIL fobj;
-    FRESULT fr;
-    char line[128];
+bool ScheduleManager_UpdateStatus(SchedType_t type, uint32_t line_number, SchedStatus_t new_status) {
+    if (line_number == 0) return false;
 
-    if (sch_index >= total_schedules) return false;
+    const char* src_file  = GetFileNameByType(type);
+    const char* temp_file = "temp_sched.txt";
 
-    /* Update status di RAM internal */
-    schedule_list[sch_index].status = SCH_STATUS_FINISH;
+    char line_buf[SCHED_CFG_MAX_LINE_LEN];
+    uint32_t current_line = 0;
 
-    /* --- UPDATE STATUS DI SD CARD ---
-       MENGAPA FA_WRITE & f_lseek: Kita tidak menulis ulang seluruh file dari awal (yang lambat & boros resource),
-       melainkan lompat langsung ke offset baris jadwal bersangkutan dan mengganti teks statusnya saja */
-    fr = f_open(&fobj, sch_filename, FA_WRITE | FA_READ);
-    if (fr != FR_OK) return false;
-
-    fr = f_lseek(&fobj, schedule_list[sch_index].file_pos);
-    if (fr == FR_OK) {
-        /* Format ulang baris teks tersebut menjadi string finish */
-    	/* MENGAPA PADDING SPASI DIBUTUHKAN:
-    	           Kata 'onschedule' = 10 karakter. Kata 'finish' = 6 karakter.
-    	           Kita menambahkan 4 buah spasi di belakang 'finish' ("finish    ")
-    	           agar bisa menimpa total 10 karakter sisa kata lama di dalam file SD Card,
-    	           sehingga mencegah munculnya string cacat seperti 'finishdule'. */
-		sprintf(line, "%02d/%02d/%04d %02d:%02d %s finish    \n",
-				schedule_list[sch_index].day,
-				schedule_list[sch_index].month,
-				schedule_list[sch_index].year,
-				schedule_list[sch_index].hour,
-				schedule_list[sch_index].minute,
-				schedule_list[sch_index].recipe_name);
-
-        f_puts(line, &fobj);
+    if (!FatFsWrapper_Open(&sched_file_ctx, src_file, FA_READ)) {
+        return false;
     }
-    f_close(&fobj);
-    printf("[SCH] File Berhasil Diupdate -> %s telah selesai (finish).\n", schedule_list[sch_index].recipe_name);
-    return (fr == FR_OK);
+
+    /* MENGAPA TEMP-SWAP DIGUNAKAN:
+       FatFs tidak mendukung replace substring di tengah file secara atomic.
+       Membuat temp file lalu menimpa file utama adalah teknik fail-safe
+       mencegah korupsi data jika mati listrik saat penulisan berlangsung. */
+    FileContext_t temp_ctx = { .owner_id = SCHED_CFG_OWNER_ID };
+    if (!FatFsWrapper_Open(&temp_ctx, temp_file, FA_CREATE_ALWAYS | FA_WRITE)) {
+        FatFsWrapper_Close(&sched_file_ctx);
+        return false;
+    }
+
+    while (FatFsWrapper_ReadLine(&sched_file_ctx, line_buf, sizeof(line_buf))) {
+        current_line++;
+
+        if (current_line == line_number) {
+            /* Cari letak "status[" lalu ganti statusnya */
+            char* status_ptr = strstr(line_buf, "status[");
+            if (status_ptr != NULL) {
+                char prefix_buf[SCHED_CFG_MAX_LINE_LEN];
+                size_t prefix_len = (size_t)(status_ptr - line_buf);
+                strncpy(prefix_buf, line_buf, prefix_len);
+                prefix_buf[prefix_len] = '\0';
+
+                snprintf(line_buf, sizeof(line_buf), "%sstatus[%s]\n", prefix_buf, StatusToStr(new_status));
+            }
+        }
+
+        FatFsWrapper_Write(&temp_ctx, line_buf, strlen(line_buf));
+    }
+
+    FatFsWrapper_Close(&sched_file_ctx);
+    FatFsWrapper_Close(&temp_ctx);
+
+    /* Atomic File Replacement */
+    FatFsWrapper_Delete(src_file);
+    return FatFsWrapper_Rename(temp_file, src_file);
+}
+
+bool ScheduleManager_AutoReschedule(const ScheduleItem_t* item) {
+    if (item == NULL || item->repeat_days == 0) return false;
+
+    const char* filename = GetFileNameByType(item->type);
+    char time_str[24];
+    char line_out[SCHED_CFG_MAX_LINE_LEN];
+
+    /* Hitung waktu eksekusi berikutnya (Epoch + N hari) */
+    uint32_t next_epoch = item->epoch_time + ((uint32_t)item->repeat_days * 86400);
+    Schedule_EpochToDateTimeStr(next_epoch, time_str, sizeof(time_str));
+
+    if (item->type == SCHED_TYPE_FERTILIZER) {
+        /* Rakit baris Fertigasi komplit */
+        char fert_tag[96] = "fertilizer[";
+        char dose_tmp[20];
+        uint8_t count = 0;
+
+        for (uint8_t i = 0; i < NUM_FERTILIZERS; i++) {
+            if (item->recipe.fert_volumes[i] > 0) {
+                snprintf(dose_tmp, sizeof(dose_tmp), "%sfert%d:%d",
+                         (count > 0) ? "," : "", i + 1, item->recipe.fert_volumes[i]);
+                strncat(fert_tag, dose_tmp, sizeof(fert_tag) - strlen(fert_tag) - 1);
+                count++;
+            }
+        }
+        strncat(fert_tag, "]", sizeof(fert_tag) - strlen(fert_tag) - 1);
+
+        snprintf(line_out, sizeof(line_out), "%s [%s] %s water[%d] mixing[%d] repeat[%d] status[pending]\n",
+                 time_str, item->recipe.name, fert_tag,
+                 item->recipe.water_volume, item->recipe.mixing_time_sec, item->repeat_days);
+    } else {
+        /* Rakit baris Irigasi air murni */
+        snprintf(line_out, sizeof(line_out), "%s repeat[%d] water[%d] status[pending]\n",
+                 time_str, item->repeat_days, item->recipe.water_volume);
+    }
+
+    /* Append baris baru ke paling bawah file SD Card */
+    return FatFsWrapper_AppendText(&sched_file_ctx, filename, line_out);
 }

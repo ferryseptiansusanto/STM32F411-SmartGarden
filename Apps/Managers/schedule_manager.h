@@ -1,79 +1,99 @@
 /**
  * @file    schedule_manager.h
- * @brief   Header file untuk manajemen jadwal eksekusi pemupukan berbasis RTC dan SD Card.
+ * @brief   Manajer Penjadwalan FSM. Mengurai waktu, mengevaluasi toleransi keterlambatan,
+ * dan memanipulasi status jadwal di SD Card.
+ * @note    Modul ini murni mengolah logika penjadwalan di RAM. I/O fisik SD Card
+ * didelegasikan ke fatfs_wrapper.
  *
- *  Created on: 22 Jul 2026
- *      Author: ferry
+ * Created on: 3 Aug 2026
+ * Author: ferry
  */
-#ifndef SCHEDULE_MANAGER_H
-#define SCHEDULE_MANAGER_H
+
+#ifndef MANAGERS_SCHEDULE_MANAGER_H_
+#define MANAGERS_SCHEDULE_MANAGER_H_
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "schedule_config.h"
 #include "recipe_manager.h"
-#include "ds3231_wrapper.h" // Sesuai file ds3231 Anda
 
-#define MAX_SCHEDULES 20
-
+/**
+ * @brief Enumerasi status eksekusi jadwal.
+ */
 typedef enum {
-    STATUS_PENDING = 0,
-    STATUS_SUCCESS,
-    STATUS_SKIPPED
-} ScheduleStatus_t;
-
-// --- STRUKTUR JADWAL PUPUK ---
-typedef struct {
-    uint8_t  tipe_pupuk;   // 1 s/d 5
-    uint16_t volume_ml;    // misal: 100
-} Nutrisi_t;
-
-typedef struct {
-    uint32_t timestamp;        // Waktu eksekusi (dikonversi ke Unix Epoch Seconds)
-    Nutrisi_t pupuk[5];        // Array untuk maksimal 5 jenis pupuk
-    uint8_t  jumlah_pupuk;     // Berapa jenis pupuk yang aktif di resep ini
-    uint16_t water_volume_ml;  // Volume air baku
-    ScheduleStatus_t status;   // PENDING / SUCCESS / SKIPPED
-} JadwalPupuk_t;
-
-// --- STRUKTUR JADWAL PENGAIRAN ---
-typedef struct {
-    uint32_t timestamp;        // Waktu eksekusi (Unix Epoch Seconds)
-    uint16_t repeat_days;      // 0 = none, 1 = daily, >1 = custom days
-    uint16_t water_volume_ml;  // Volume air baku
-    ScheduleStatus_t status;   // PENDING / SUCCESS / SKIPPED
-} JadwalPengairan_t;
-
-typedef struct {
-    uint8_t day;
-    uint8_t month;
-    uint16_t year;
-    uint8_t hour;
-    uint8_t minute;
-    char recipe_name[MAX_RECIPE_NAME];
-    SchStatus_t status;
-    uint32_t file_pos; /**< Pointer penunjuk posisi byte di file SD Card untuk update status cepat */
-} Schedule_t;
+    SCHED_STATUS_PENDING = 0, /**< Menunggu dieksekusi */
+    SCHED_STATUS_SUCCESS,     /**< Berhasil dieksekusi */
+    SCHED_STATUS_SKIPPED,     /**< Dibatalkan oleh operator */
+    SCHED_STATUS_URGENT,      /**< Terlambat parah, butuh konfirmasi manual */
+    SCHED_STATUS_INVALID      /**< Format baris rusak / Syntax error */
+} SchedStatus_t;
 
 /**
- * @brief   Memuat semua daftar jadwal dari SD Card ke memori internal RAM.
- * @retval  bool true jika berhasil memuat file jadwal.
+ * @brief Enumerasi jenis jadwal.
  */
-bool Schedule_Init(void);
+typedef enum {
+    SCHED_TYPE_IRRIGATION = 0, /**< Jadwal pengairan air murni */
+    SCHED_TYPE_FERTILIZER      /**< Jadwal pemupukan / fertigasi */
+} SchedType_t;
 
 /**
- * @brief   Memeriksa apakah ada jadwal aktif yang cocok dengan waktu RTC saat ini.
- * @param   current_time Struktur waktu dari driver DS3231.
- * @param   out_recipe_name Pointer menampung resep yang harus dijalankan.
- * @param   out_sch_index Pointer untuk merekam index jadwal yang aktif di RAM.
- * @retval  bool true jika ada jadwal yang valid dan siap dieksekusi sekarang.
+ * @brief Struktur data matang dari 1 baris jadwal yang diekstraksi.
  */
-bool Schedule_CheckTrigger(DS3231_DateTime current_time, char* out_recipe_name, int* out_sch_index);
+typedef struct {
+    uint32_t      epoch_time;     /**< Waktu eksekusi dalam detik Unix Epoch */
+    SchedType_t   type;           /**< Tipe jadwal (Irigasi / Fertigasi) */
+    SchedStatus_t status;         /**< Status eksekusi jadwal saat ini */
+    uint16_t      repeat_days;    /**< Interval pengulangan (hari), 0 = Tanpa pengulangan */
+    FertRecipe_t  recipe;         /**< Resep racikan air, pupuk, dan mixing */
+    uint32_t      line_number;    /**< Posisi nomor baris di dalam file SD Card */
+} ScheduleItem_t;
 
 /**
- * @brief   Memperbarui status jadwal dari 'onschedule' menjadi 'finish' di SD Card dan RAM.
- * @param   sch_index Index jadwal di dalam array RAM.
- * @retval  bool true jika penulisan ulang ke SD Card sukses.
+ * @brief   Menginisialisasi Context Schedule Manager untuk fatfs_wrapper.
+ * @retval  bool true jika inisialisasi berhasil.
  */
-bool Schedule_MarkAsFinish(int sch_index);
+bool ScheduleManager_Init(void);
 
-#endif /* SCHEDULE_MANAGER_H */
+/**
+ * @brief   Mencari jadwal aktif ('pending' atau 'urgent') yang waktunya sudah tiba.
+ * @param   type Jenis file jadwal yang ingin diperiksa (Irrigation/Fertilizer).
+ * @param   out_item Pointer tempat menampung data jadwal matang.
+ * @param   current_epoch_time Waktu RTC saat ini dalam detik Unix Epoch.
+ * @param   max_delay_tolerance Batas toleransi keterlambatan maksimal dalam detik.
+ * @retval  bool true jika ditemukan jadwal yang harus dieksekusi/dikonfirmasi.
+ */
+bool ScheduleManager_GetDueSchedule(SchedType_t type, ScheduleItem_t* out_item,
+                                   uint32_t current_epoch_time, uint32_t max_delay_tolerance);
+
+/**
+ * @brief   Memperbarui tag status jadwal di file SD Card secara aman (Atomic Temp-Swap).
+ * @param   type Jenis file jadwal (Irrigation/Fertilizer).
+ * @param   line_number Nomor baris yang akan diperbarui statusnya.
+ * @param   new_status Status baru (misal SCHED_STATUS_SUCCESS).
+ * @retval  bool true jika update file di SD Card berhasil.
+ */
+bool ScheduleManager_UpdateStatus(SchedType_t type, uint32_t line_number, SchedStatus_t new_status);
+
+/**
+ * @brief   Membuat baris jadwal baru untuk N hari berikutnya jika repeat_days > 0.
+ * @param   item Pointer ke jadwal asli yang baru saja diselesaikan.
+ * @retval  bool true jika penambahan jadwal baru ke SD Card berhasil.
+ */
+bool ScheduleManager_AutoReschedule(const ScheduleItem_t* item);
+
+/**
+ * @brief   Mengonversi teks tanggal "YYYY-MM-DD HH:MM:SS" menjadi Unix Epoch (detik).
+ * @param   time_str String waktu.
+ * @retval  uint32_t Waktu dalam Unix Epoch (detik), 0 jika format invalid.
+ */
+uint32_t Schedule_DateTimeToEpoch(const char* time_str);
+
+/**
+ * @brief   Mengonversi Unix Epoch (detik) menjadi string "YYYY-MM-DD HH:MM:SS".
+ * @param   epoch Waktu Unix Epoch.
+ * @param   out_buf Buffer penampung hasil teks.
+ * @param   max_len Ukuran maksimal buffer.
+ */
+void Schedule_EpochToDateTimeStr(uint32_t epoch, char* out_buf, size_t max_len);
+
+#endif /* MANAGERS_SCHEDULE_MANAGER_H_ */

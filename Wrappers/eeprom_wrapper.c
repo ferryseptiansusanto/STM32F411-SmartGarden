@@ -1,5 +1,5 @@
 /*
- * @file    eeprom_wrapper.h
+ * @file    eeprom_wrapper.c
  * @brief   Middleware Layer 2 untuk memori AT24C32.
  *
  *
@@ -7,6 +7,7 @@
  *      Author: ferry
  */
 #include "eeprom_wrapper.h"
+#include "delay.h"
 
 /**
  * @brief Inisialisasi Objek EEPROM.
@@ -53,7 +54,7 @@ bool EEPROM_WriteBytes(EEPROM_Device_t *dev, uint16_t mem_addr, uint8_t *data, u
         bytes_written += bytes_to_write;
 
         // Zero-Blocking Delay agar CPU bisa mengerjakan Task lain
-        vTaskDelay(pdMS_TO_TICKS(5));
+        DelayMs(pdMS_TO_TICKS(5));
     }
 
     return true;

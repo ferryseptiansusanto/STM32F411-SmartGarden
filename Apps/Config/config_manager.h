@@ -11,19 +11,26 @@
 #ifndef APPS_CONFIG_MANAGER_H_
 #define APPS_CONFIG_MANAGER_H_
 
+#include <stdint.h>
 #include <stdbool.h>
-#include "eeprom_wrapper.h"
 
-/* Alamat memori awal di EEPROM untuk data kalibrasi */
-#define EEPROM_CALIB_START_ADDR  0x0000
+/**
+ * @brief Memuat konfigurasi dari EEPROM. Melakukan validasi CRC32.
+ * Jika gagal/korup, otomatis memuat nilai dari default_config.h.
+ * @return true jika data valid dari EEPROM, false jika memuat default.
+ */
+bool Config_Init(void);
 
-/** @brief Inisialisasi konfigurasi saat boot */
-void ConfigManager_Init(I2C_EEPROMDevice *dev);
+/**
+ * @brief Mengkalkulasi ulang CRC32 dan menyimpan struktur ke EEPROM.
+ * @return true jika WriteBytes berhasil (Zero-Blocking).
+ */
+bool Config_Save(void);
 
-/** @brief Menyimpan konfigurasi dari RAM ke EEPROM (beserta update CRC) */
-bool ConfigManager_Save(void);
-
-/** @brief Mereset data di RAM dengan factory default dan menyimpannya ke EEPROM */
-void ConfigManager_ResetToDefault(void);
+/**
+ * @brief Reset konfigurasi ke factory default secara manual.
+ * @note  Pastikan memanggil Config_Save() setelah fungsi ini jika ingin permanen.
+ */
+void Config_LoadDefault(void);
 
 #endif /* APPS_CONFIG_MANAGER_H_ */

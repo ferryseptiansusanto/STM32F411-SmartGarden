@@ -39,17 +39,25 @@ typedef struct {
      */
     float temp_slope;
 
-    /* --- Kalibrasi Flowmeter --- */
+    /* --- Kalibrasi Flowmeter (Pulsa per Liter) --- */
     uint16_t fm_inlet_pulse_per_liter;
-    uint16_t fm_outlet_pulse_per_liter;
-    uint16_t fm_fert_pulse_per_liter;
+	uint16_t fm_outlet_pulse_per_liter;
+	uint16_t fm_fert_pulse_per_liter;
 
-    /* --- Checksum untuk Validitas Data --- */
+    /* --- Konfigurasi Operasional FSM (Aturan 10) --- */
+	uint32_t waiting_user_response_time; // ms
+	uint32_t max_delay_tolerance;        // ms
+
+	/* --- Checksum --- */
+	/**
+	 * @brief CRC32 dari seluruh variabel di atas.
+	 * WAJIB berada di paling bawah (akhir) dari struct ini!
+	 */
     uint32_t crc32;
 
 } SensorCalibration_t;
 
-/* Global instance yang dikelola oleh config_manager.c */
+/* Global instance yang akan digunakan oleh seluruh FSM dan Driver */
 extern SensorCalibration_t sys_calib;
 
 #endif /* APPS_CONFIG_DATA_H_ */

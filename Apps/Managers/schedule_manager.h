@@ -14,7 +14,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "schedule_config.h"
+#include "Config/schedule_config.h"
 #include "recipe_manager.h"
 
 /**

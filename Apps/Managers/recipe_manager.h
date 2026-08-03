@@ -13,7 +13,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include "recipe_config.h" /* Mengimpor semua batasan dari file config sub-modul */
+#include "Config/recipe_config.h" /* Mengimpor semua batasan dari file config sub-modul */
 
 /**
  * @brief Jumlah pupuk yang dikelola merujuk pada jumlah valve di board.

@@ -4,369 +4,308 @@
  * @details Mengelola FSM Irigasi Otomatis dan Sekuensial Pemupukan berbasis
  * Jadwal File SD Card dan sinkronisasi RTC (DS3231) dengan kepatuhan Zero-Blocking
  * serta manajemen memori Pinjam-Pakai (Zero-Copy Queue).
- * @author  ferry / Senior Embedded Systems Engineer
+ * @author  ferry
  * @date    22 Jul 2026
  */
 
-#include <fatfs_wrapper.h>
-#include "FreeRTOS.h"
-#include "task.h"
-#include "queue.h"
-#include <stdio.h>
-#include <storage_wrapper.h>
 #include "app_task.h"
-#include "command_event.h" // Menggunakan kontrak data terpusat berbasis Zero-Copy
+#include "app_config.h"         /* Pusat konfigurasi makro FSM */
+#include "command_event.h"      /* Kontrak struktur data Zero-Copy */
 
-// Include actuator, sensor
-#include "actuator/actuator_driver.h"
-#include "flowmeter/flowmeter_driver.h"
-#include "water_lvl/water_lvl_driver.h"
-#include "water_quality/water_quality_driver.h"
-#include "temperature/temp_driver.h"
-// Include device support
-#include "ds3231_wrapper.h"
-#include "eeprom_wrapper.h"
-// Include management
-#include "config_data.h"
+#include "actuator_driver.h"
+#include "flowmeter_driver.h"
+#include "water_lvl_driver.h"
+#include "water_quality_driver.h"
 #include "config_manager.h"
-#include "recipe_manager.h"
 #include "schedule_manager.h"
+#include "log_manager.h"
 
-I2C_RTCDevice DS3231_Ctx;
-I2C_EEPROMDevice Eeprom_Ctx;
-SPI_StorageDevice SDCard_Ctx;
-
-/* --- Definisi Alur Struktur State Machine --- */
-typedef enum {
-    IRR_STATE_IDLE,
-    IRR_STATE_START,
-    IRR_STATE_WATERING,
-    IRR_STATE_DONE
-} IrrigationState_t;
-
-typedef enum {
-    FERT_STATE_IDLE,
-    FERT_STATE_ISI_AIR,
-    FERT_STATE_ISI_PUPUK,  /**< Tahap Multi-Dosing Valve 1 hingga Valve 5 berbasis SD Card */
-    FERT_STATE_MIXING,
-    FERT_STATE_BUANG,
-    FERT_STATE_DONE,
-    FERT_STATE_SAFETY_ERR
-} FertState_t;
-
-
-/* --- Alokasi Objek Driver Sensor Global --- */
-FlowSensor_t sensor_inlet;
-FlowSensor_t sensor_outlet;
-FlowSensor_t sensor_fert;
-
-/* --- Eksternal Periferal dari Core Inisialisasi Perangkat Keras --- */
-extern ADC_HandleTypeDef hadc1;
-extern TIM_HandleTypeDef htim2;
-extern TIM_HandleTypeDef htim5;
-extern TIM_HandleTypeDef htim9;
-
-/* --- Variabel Konteks FreeRTOS Kernel --- */
+/* --- Konteks RTOS --- */
 TaskHandle_t appTaskHandle;
 QueueHandle_t appQueue;
-extern QueueHandle_t wtrLvlQueue;
+extern QueueHandle_t wtrLvlQueue; /* Antrean dari interupsi Water Level EXTI */
 QueueSetHandle_t appQueueSet;
 
-/* --- Status Internal Mesin Status (FSM) --- */
-static IrrigationState_t currentIrrState = IRR_STATE_IDLE;
-static FertState_t currentFertState = FERT_STATE_IDLE;
+/* --- FSM State Tracker --- */
+static AppFSMState_t currentState = STATE_INIT_HARDWARE;
+
+/* --- Variabel Pelacakan Jadwal & Resep --- */
+static ScheduleInfo_t active_schedule;
+static FertRecipe_t active_recipe;
+static uint8_t current_fert_index = 0;
 static TickType_t mixing_start_tick = 0;
 
-/* Konteks Data Resep & Pelacakan Jadwal Dinamis */
-static FertRecipe_t activeRecipe;
-static uint8_t current_fert_index = 0;
-static int active_schedule_index = -1; /**< Menyimpan index jadwal yang sedang dieksekusi */
-
-/* Mapping Index ke Actuator ID Aktuator Valve */
-static const ActuatorType_t fert_valves[NUM_FERTILIZERS] = {
-    ACT_VALVE_FERT_1, ACT_VALVE_FERT_2, ACT_VALVE_FERT_3, ACT_VALVE_FERT_4, ACT_VALVE_FERT_5
+/* Pemetaan array aktuator pupuk O(1) */
+static const ActuatorType_t fert_valves[5] = {
+    ACT_VALVE_FERT1, ACT_VALVE_FERT2, ACT_VALVE_FERT3, ACT_VALVE_FERT4, ACT_VALVE_FERT5
 };
 
-/* --- Loop Evaluasi Rutin Irigasi Rutin (Non-Blocking) --- */
-void HandleIrrigationRoutine(void) {
-    switch (currentIrrState) {
-        case IRR_STATE_IDLE: break;
-        case IRR_STATE_START:
-            FlowSensor_ResetVolume(&sensor_outlet);
-            Actuator_SetState(ACT_VALVE_WATER_IN, ACT_ON);
-            Actuator_SetState(ACT_PUMP_OUT, ACT_ON);
-            FlowSensor_Start(&sensor_outlet);
-            currentIrrState = IRR_STATE_WATERING;
-            break;
-        case IRR_STATE_WATERING:
-            if (FlowSensor_GetVolume(&sensor_outlet) >= TARGET_VOL_IRIGASI) {
-                Actuator_SetState(ACT_VALVE_WATER_IN, ACT_OFF);
-                Actuator_SetState(ACT_PUMP_OUT, ACT_OFF);
-                FlowSensor_Stop(&sensor_outlet);
-                currentIrrState = IRR_STATE_DONE;
-            }
-            break;
-        case IRR_STATE_DONE:
-            printf("[FSM IRR] Irigasi Rutin Selesai 100%%.\n");
-            currentIrrState = IRR_STATE_IDLE;
-            break;
-        default: currentIrrState = IRR_STATE_IDLE; break;
-    }
-}
+/* --- Referensi Eksternal --- */
+extern FlowSensor_t sensor_fert;
+extern FlowSensor_t sensor_inlet;
+extern FlowSensor_t sensor_outlet;
+extern SystemConfig_t sys_calib; // Dari config_manager
 
 /**
- * @brief   Menangani FSM Pemupukan Multi-Dosing berbasis Load File SD Card secara Sekuensial.
- */
-void HandleFertilizationRoutine(void) {
-    WaterQualityData_t wq;
-
-    switch (currentFertState) {
-        case FERT_STATE_IDLE:
-            break;
-
-        case FERT_STATE_ISI_AIR:
-            Actuator_SetState(ACT_VALVE_TANK_IN, ACT_ON);
-            FlowSensor_Start(&sensor_inlet);
-
-            if (FlowSensor_GetVolume(&sensor_inlet) >= TARGET_VOL_AIR_PENGENCER) {
-                Actuator_SetState(ACT_VALVE_TANK_IN, ACT_OFF);
-                FlowSensor_Stop(&sensor_inlet);
-
-                /* Inisialisasi awal index sekuens multi-dosing pupuk */
-                FlowSensor_ResetVolume(&sensor_fert);
-                current_fert_index = 0;
-                currentFertState = FERT_STATE_ISI_PUPUK;
-            }
-            break;
-
-        case FERT_STATE_ISI_PUPUK:
-            /* MENGAPA DIPERLUKAN: Melewati (auto-skip) pupuk yang di dalam file resep diset 0.0 Liter */
-            while (current_fert_index < NUM_FERTILIZERS && activeRecipe.target_vol_liter[current_fert_index] <= 0.0f) {
-                current_fert_index++;
-            }
-
-            /* Cek apakah 5 katup pupuk selesai dievaluasi */
-            if (current_fert_index >= NUM_FERTILIZERS) {
-                Actuator_SetState(ACT_PUMP_FERT, ACT_OFF);
-                FlowSensor_Stop(&sensor_fert);
-
-                mixing_start_tick = xTaskGetTickCount();
-                currentFertState = FERT_STATE_MIXING;
-                break;
-            }
-
-            /* Jalankan dosing untuk index pupuk yang aktif saat ini */
-            ActuatorType_t active_valve = fert_valves[current_fert_index];
-            Actuator_SetState(active_valve, ACT_ON);
-            Actuator_SetState(ACT_PUMP_FERT, ACT_ON);
-            FlowSensor_Start(&sensor_fert);
-
-            if (FlowSensor_GetVolume(&sensor_fert) >= activeRecipe.target_vol_liter[current_fert_index] || isWtrLvl_Full()) {
-                /* Amankan katup sebelum pindah ke jenis pupuk berikutnya */
-                Actuator_SetState(active_valve, ACT_OFF);
-                Actuator_SetState(ACT_PUMP_FERT, ACT_OFF);
-
-                if (isWtrLvl_Full()) {
-                    FlowSensor_Stop(&sensor_fert);
-                    mixing_start_tick = xTaskGetTickCount();
-                    currentFertState = FERT_STATE_MIXING;
-                } else {
-                    FlowSensor_ResetVolume(&sensor_fert);
-                    current_fert_index++; /* Increment sub-state index */
-                }
-            }
-            break;
-
-        case FERT_STATE_MIXING:
-            Actuator_SetState(ACT_MIXER, ACT_ON);
-            wq = WaterQuality_GetData();
-
-            if (wq.ec_val > TARGET_EC_MAX && !isWtrLvl_Full()) {
-                Actuator_SetState(ACT_VALVE_TANK_IN, ACT_ON);
-            } else {
-                Actuator_SetState(ACT_VALVE_TANK_IN, ACT_OFF);
-            }
-
-            if ((xTaskGetTickCount() - mixing_start_tick) >= pdMS_TO_TICKS(MIXING_DURATION_MS)) {
-                Actuator_SetState(ACT_MIXER, ACT_OFF);
-                Actuator_SetState(ACT_VALVE_TANK_IN, ACT_OFF);
-                FlowSensor_ResetVolume(&sensor_outlet);
-                currentFertState = FERT_STATE_BUANG;
-            }
-            break;
-
-        case FERT_STATE_BUANG:
-            Actuator_SetState(ACT_VALVE_TANK_OUT, ACT_ON);
-            Actuator_SetState(ACT_PUMP_OUT, ACT_ON);
-            FlowSensor_Start(&sensor_outlet);
-
-            if (FlowSensor_GetVolume(&sensor_outlet) >= TARGET_VOL_IRIGASI_FERT || isWtrLvl_Empty()) {
-                Actuator_SetState(ACT_PUMP_OUT, ACT_OFF);
-                Actuator_SetState(ACT_VALVE_TANK_OUT, ACT_OFF);
-                FlowSensor_Stop(&sensor_outlet);
-                currentFertState = FERT_STATE_DONE;
-            }
-            break;
-
-        case FERT_STATE_DONE:
-            /* MENGAPA CRITICAL: Memperbarui penanda status menjadi 'finish' di SD Card berkas schedule.txt
-               agar jadwal ini tidak akan pernah tidak sengaja ter-trigger kembali di menit yang sama */
-            if (active_schedule_index != -1) {
-                Schedule_MarkAsFinish(active_schedule_index);
-                active_schedule_index = -1; /* Reset tracker index */
-            }
-            currentFertState = FERT_STATE_IDLE;
-            break;
-
-        case FERT_STATE_SAFETY_ERR:
-            Actuator_Init();
-            active_schedule_index = -1;
-            currentFertState = FERT_STATE_IDLE;
-            break;
-
-        default:
-            currentFertState = FERT_STATE_IDLE;
-            break;
-    }
-}
-
-/**
- * @brief   Task Utama FreeRTOS Aplikasi
+ * @brief Task FreeRTOS Utama untuk FSM
  */
 static void vTaskApp(void *pvParameters) {
     (void)pvParameters;
 
-    CommandEvent_t *evt_ptr = NULL; /* ZERO-COPY: Menerima Alamat Pointer dari Kurir Komunikasi */
-	WtrLvl_Event_t wtrEvt;
-	TickType_t last_rtc_check = 0;
+    CommandEvent_t *evt_ptr = NULL;
+    WtrLvl_Event_t wtrEvt;
+    WaterQualityData_t wq;
 
-    // ========================================================
-    // TAMBAHKAN INISIALISASI DRIVER SENSOR, RTC, EEPROM, SDCARD  DI SINI
-    // ========================================================
-    // 1. Inisialisasi Sensor Kualitas Air (Mengaktifkan DMA ADC)
-    WaterQuality_Init(&hadc1);
-    // 2. Inisialisasi Sensor Suhu DS18B20 (Sesuaikan Port & Pin dengan CubeMX Anda)
-    TempSensor_Init(TEMP_GPIO_Port, TEMP_Pin);
-    // 3. Inisialisasi Flowmeter
-	FlowSensor_Init(&sensor_inlet,  FLOW_SENSOR_INLET,  sys_calib.fm_inlet_pulse_per_liter,  &htim5, TIM_CHANNEL_2);
-	FlowSensor_Init(&sensor_outlet, FLOW_SENSOR_OUTLET, sys_calib.fm_outlet_pulse_per_liter, &htim9, TIM_CHANNEL_1);
-	FlowSensor_Init(&sensor_fert,   FLOW_SENSOR_FERT,   sys_calib.fm_fert_pulse_per_liter,   &htim2, TIM_CHANNEL_1);
-    // 4. Inisialisasi Actuator
-    Actuator_Init();
-    // 5. Inisialisasi Water Level
-    WtrLvl_Init();
-    // 6. Initialize Support Device
-    STORAGE_SetDeviceParameter(&SDCard_Ctx, &spi1_ctx, SPI1_CS_GPIO_Port, SPI1_CS_Pin, SPI_MODE_DMA); // Wajib setelah spi1_ctx diinitialize terlebih dahulu.
-    LOG_Init("0:", 0, &SDCard_Ctx); // SDCard_Ctx wajib di set parameter
-    DS3231_Init(&DS3231_Ctx, &i2c1_ctx);
-    EEPROM_Init(0x57, &Eeprom_Ctx, &i2c1_ctx);
-
-    // ========================================================
-
-    /* Validasi dan Load Konfigurasi (Manajer) */
-    ConfigManager_Init(&Eeprom_Ctx);
-
-    /* --- INITIALIZE JADWAL FILE SD CARD --- */
-    /* Mengisi list struktur RAM dari arsip penyimpanan SD Card saat booting pertama kali */
-    Schedule_Init();
-
-    appQueueSet = xQueueCreateSet(15);
+    /* Inisialisasi QueueSet: Menyatukan 2 pintu event (Komunikasi & Sensor Level) */
+    appQueueSet = xQueueCreateSet(APP_QUEUE_SET_SIZE);
     if (appQueueSet != NULL) {
         xQueueAddToSet(appQueue, appQueueSet);
         xQueueAddToSet(wtrLvlQueue, appQueueSet);
     }
 
-    last_rtc_check = xTaskGetTickCount();
-
     for (;;) {
+        /* ====================================================================
+         * 1. PENDENGAR EVENT NON-BLOCKING (TICK LOOP 10ms)
+         * ==================================================================== */
         QueueSetMemberHandle_t activatedQueue = xQueueSelectFromSet(appQueueSet, pdMS_TO_TICKS(10));
 
         if (activatedQueue == appQueue) {
-			/* ===================================================================
-			 * PENERAPAN POLA PINJAM-PAKAI (ZERO-COPY QUEUE RECEIVE & FREE)
-			 * Menerima alamat pointer dari antrean FSM utama, memproses isinya,
-			 * lalu WAJIB membebaskan memorinya untuk mencegah Memory Leak.
-			 * =================================================================== */
-			if (xQueueReceive(appQueue, &evt_ptr, 0) == pdPASS && evt_ptr != NULL) {
+            /* PENERAPAN ZERO-COPY MEMORY: Terima alamat pointer, baca, lalu BEBASKAN! */
+            if (xQueueReceive(appQueue, &evt_ptr, 0) == pdPASS && evt_ptr != NULL) {
 
-				switch (evt_ptr->cmd_id) {
-					case CMD_ACTIVATE_PUMP:
-						if (currentIrrState == IRR_STATE_IDLE) {
-							currentIrrState = IRR_STATE_START;
-						}
-						break;
+                /* Interupsi Perintah Eksternal (Bluetooth/UART) */
+                switch (evt_ptr->cmd_id) {
+                    case CMD_EMERGENCY_STOP:
+                        currentState = STATE_FAULT;
+                        LogManager_WriteErrorLog("ERR_EMERGENCY", "Emergency Stop Ditekan via Bluetooth!");
+                        break;
+                    case CMD_START_CALIBRATION:
+                        currentState = STATE_SENSOR_CALIBRATION;
+                        break;
+                    case CMD_SYNC_CONFIG:
+                        currentState = STATE_SYNC_CONFIG;
+                        break;
+                    // (Perintah lainnya...)
+                    default: break;
+                }
 
-					case CMD_BLUETOOTH_CSV:
-						// Contoh memproses string data mentah dari Bluetooth/Eksternal
-						printf("[APP] Menerima data CSV dari Komunikasi: %s\n", evt_ptr->payload.csv_data.str_ptr);
-
-						/* WAJIB FREE payload alokasi string internal terlebih dahulu */
-						if (evt_ptr->payload.csv_data.str_ptr != NULL) {
-							vPortFree(evt_ptr->payload.csv_data.str_ptr);
-						}
-						break;
-
-					default:
-						break;
-				}
-
-				/* BEBASKAN POINTER STRUCT UTAMA AGAR TIDAK TERJADI HARDFAULT / LEAK */
-				vPortFree(evt_ptr);
-			}
-		}
-		else if (activatedQueue == wtrLvlQueue) {
-			if (xQueueReceive(wtrLvlQueue, &wtrEvt, 0)) {
-				if (wtrEvt.sensor == LVL_TANK_EMPTY && wtrEvt.is_reached) {
-					if (currentFertState == FERT_STATE_BUANG || currentFertState == FERT_STATE_MIXING) {
-						 currentFertState = FERT_STATE_SAFETY_ERR;
-					}
-				}
-			}
-		}
-
-        /* --- SINKRONISASI JADWAL VIA RTC (Setiap 5 Detik Sekali) --- */
-        /* MENGAPA 5 DETIK: Membaca chip RTC DS3231 via bus I2C terlalu sering di dalam loop cepat (10ms)
-           akan menyita bandwidth bus komunikasi hardware. Interval 5 detik sangat optimal untuk mengecek menit jadwal */
-        if ((xTaskGetTickCount() - last_rtc_check) >= pdMS_TO_TICKS(5000)) {
-            last_rtc_check = xTaskGetTickCount();
-
-            if (currentFertState == FERT_STATE_IDLE) {
-
-            	DS3231_DateTime now = DS3231_GetDateTime(&DS3231_Ctx); /* Mengambil data jam, menit, tanggal aktual dari perangkat RTC */
-
-                char triggered_recipe_name[MAX_RECIPE_NAME];
-                int sch_idx = -1;
-
-                /* Cek ke list jadwal RAM apakah ada yang cocok dengan menit ini */
-                if (Schedule_CheckTrigger(now, triggered_recipe_name, &sch_idx)) {
-                    /* Ambil file komposisi pupuk dari recipes.csv berdasarkan nama resep */
-                    if (Recipe_Load(triggered_recipe_name, &activeRecipe)) {
-                        active_schedule_index = sch_idx;
-                        currentFertState = FERT_STATE_ISI_AIR; /* Pemicuan sukses, FSM Berjalan! */
-                        printf("[APP] JADWAL MATCH! Menjalankan Resep: %s\n", activeRecipe.name);
-                    } else {
-                        printf("[APP] ERROR: Jadwal cocok ke %s, tapi isi resep gagal dimuat dari SD Card!\n", triggered_recipe_name);
-                    }
+                /* ATURAN EMAS: Hapus alokasi string internal jika ada, lalu hapus struct-nya */
+                if (evt_ptr->payload.str_ptr != NULL) {
+                    vPortFree(evt_ptr->payload.str_ptr);
+                }
+                vPortFree(evt_ptr); /* Wajib! Menangkal Memory Leak & HardFault */
+            }
+        }
+        else if (activatedQueue == wtrLvlQueue) {
+            /* Event Darurat dari Sensor Level Air */
+            if (xQueueReceive(wtrLvlQueue, &wtrEvt, 0)) {
+                if (wtrEvt.sensor == LVL_TANK_FULL && wtrEvt.is_reached && currentState == STATE_DOSING) {
+                    /* FAIL-SAFE: Jika tangki mau luber saat isi pupuk, langsung lompat ke Mixing */
+                    LogManager_WriteSystemLog("WARN: Tangki Penuh Terdeteksi saat Dosing. Memaksa Mixing.");
+                    currentState = STATE_MIXING;
                 }
             }
         }
 
-        /* --- Eksekusi Driver & Evaluasi State Machine --- */
+        /* ====================================================================
+         * 2. CENTRALIZED FINITE STATE MACHINE (15 STATE FINAL V3.6)
+         * ==================================================================== */
+        switch (currentState) {
+
+            /* --- FASE 1: BOOTING & INITIALIZATION --- */
+            case STATE_INIT_HARDWARE:
+                Actuator_Init(); /* FAIL-SAFE: Force LOW semua relay */
+                WtrLvl_Init();
+                currentState = STATE_LOAD_CALIBRATION;
+                break;
+
+            case STATE_LOAD_CALIBRATION:
+                ConfigManager_Init(); /* Tarik data sys_calib dari EEPROM I2C */
+                currentState = STATE_LOAD_SCHEDULE;
+                break;
+
+            case STATE_LOAD_SCHEDULE:
+                ScheduleManager_Init(); /* Tarik file txt jadwal dari SD Card ke RAM */
+                currentState = STATE_EVALUATE_MISSED_SCHEDULE; /* Cek apakah ada jadwal terlewat pasca mati listrik */
+                break;
+
+            /* --- FASE 2: STANDBY & ROUTING --- */
+            case STATE_SET_NEXT_ALARM:
+                /* Setel Register RTC DS3231 untuk alarm berikutnya, lalu tidur */
+                // DS3231_SetAlarm(...);
+                currentState = STATE_SLEEP;
+                break;
+
+            case STATE_SLEEP:
+                /* Mode Hemat Daya (HAL_PWR_EnterSTOPMode). FSM diam di sini sampai RTC EXTI
+                   atau Bluetooth membangunkannya. Simulasi Wake Up: */
+                // if (WakeUpEvent_Detected) currentState = STATE_EVALUATE_MISSED_SCHEDULE;
+                break;
+
+            /* --- ROUTER UTAMA: EVALUASI JADWAL TERDEKAT --- */
+            case STATE_EVALUATE_MISSED_SCHEDULE:
+                if (Schedule_GetNextPending(&active_schedule) == pdTRUE) {
+
+                    if (active_schedule.type == SCHED_TYPE_WATER_ONLY) {
+                        /* JALUR A: Irigasi Air Baku Langsung */
+                        FlowSensor_ResetVolume(&sensor_inlet);
+                        LogManager_WriteSystemLog("Mengeksekusi Irigasi Murni.");
+                        currentState = STATE_IRRIGATING;
+                    }
+                    else if (active_schedule.type == SCHED_TYPE_FERTILIZER) {
+                        /* JALUR B: Fertigasi (Pemupukan) */
+                        active_recipe = RecipeManager_GetRecipe(active_schedule.recipe_id);
+                        current_fert_index = 0;
+                        LogManager_WriteSystemLog("Mengeksekusi Sekuens Fertigasi.");
+                        currentState = STATE_PRE_FLUSHING;
+                    }
+                } else {
+                    currentState = STATE_SET_NEXT_ALARM; /* Tidak ada tugas, kembali standby */
+                }
+                break;
+
+            /* ================================================================
+             * JALUR A: IRIGASI MURNI (TANPA PENGADUKAN / LANGSUNG KE KEBUN)
+             * ================================================================ */
+            case STATE_IRRIGATING:
+                Actuator_SetState(ACT_VALVE_WATER_IN, ACT_ON);
+                Actuator_SetState(ACT_PUMP_OUT, ACT_ON);
+                FlowSensor_Start(&sensor_inlet);
+
+                /* Pengecekan Non-Blocking Volume via Hardware Timer (Setiap 10ms dari Tick Loop FSM) */
+                if (FlowSensor_GetVolume(&sensor_inlet) >= active_schedule.target_vol_ml) {
+                    Actuator_SetState(ACT_VALVE_WATER_IN, ACT_OFF);
+                    Actuator_SetState(ACT_PUMP_OUT, ACT_OFF);
+                    FlowSensor_Stop(&sensor_inlet);
+
+                    Schedule_MarkAsFinish(active_schedule.id);
+                    currentState = STATE_SET_NEXT_ALARM;
+                }
+                break;
+
+            /* ================================================================
+             * JALUR B: FERTIGASI (PERACIKAN PUPUK & DISTRIBUSI)
+             * ================================================================ */
+            case STATE_PRE_FLUSHING:
+                /* (Opsional) Menguras sisa larutan lama dari tangki.
+                   Lompat langsung ke Dosing jika tangki sudah kosong */
+                if (isWtrLvl_Empty()) {
+                    FlowSensor_ResetVolume(&sensor_fert);
+                    currentState = STATE_DOSING;
+                } else {
+                    Actuator_SetState(ACT_VALVE_TANK_OUT, ACT_ON);
+                    Actuator_SetState(ACT_PUMP_OUT, ACT_ON);
+                }
+                break;
+
+            case STATE_DOSING:
+                /* 1. Bypass otomatis jika target mililiter pupuk adalah 0 */
+                while (current_fert_index < NUM_FERTILIZERS && active_recipe.target_vol_ml[current_fert_index] <= 0) {
+                    current_fert_index++;
+                }
+
+                /* 2. Semua pupuk selesai dimasukkan? Transisi ke Pengadukan (Mixing) */
+                if (current_fert_index >= NUM_FERTILIZERS) {
+                    Actuator_SetState(ACT_PUMP_FERT, ACT_OFF);
+                    FlowSensor_Stop(&sensor_fert);
+
+                    mixing_start_tick = xTaskGetTickCount(); /* Kunci waktu untuk delay non-blocking */
+                    currentState = STATE_MIXING;
+                    break;
+                }
+
+                /* 3. Masukkan pupuk sesuai index yang berjalan */
+                ActuatorType_t active_valve = fert_valves[current_fert_index];
+                Actuator_SetState(active_valve, ACT_ON);
+                Actuator_SetState(ACT_PUMP_FERT, ACT_ON);
+                FlowSensor_Start(&sensor_fert);
+
+                /* 4. Evaluasi tercapainya target. Interupsi Tangki Penuh dipantau di QueueSet atas */
+                if (FlowSensor_GetVolume(&sensor_fert) >= active_recipe.target_vol_ml[current_fert_index]) {
+                    Actuator_SetState(active_valve, ACT_OFF);
+                    Actuator_SetState(ACT_PUMP_FERT, ACT_OFF);
+                    FlowSensor_ResetVolume(&sensor_fert);
+                    current_fert_index++; /* Lanjut ke botol pupuk berikutnya di tick OS selanjutnya */
+                }
+                break;
+
+            case STATE_MIXING:
+                Actuator_SetState(ACT_MIXER, ACT_ON);
+                wq = WaterQuality_GetData(); /* Diperbarui otomatis oleh DMA di background */
+
+                /* Opsional: Buka keran air baku untuk menurunkan kepekatan jika EC terlalu tinggi */
+                if (wq.ec_val > sys_calib.max_ec_limit && !isWtrLvl_Full()) {
+                    Actuator_SetState(ACT_VALVE_TANK_IN, ACT_ON);
+                } else {
+                    Actuator_SetState(ACT_VALVE_TANK_IN, ACT_OFF);
+                }
+
+                /* Timer Pengadukan Non-Blocking */
+                if ((xTaskGetTickCount() - mixing_start_tick) >= pdMS_TO_TICKS(active_recipe.mixing_duration_ms)) {
+                    Actuator_SetState(ACT_MIXER, ACT_OFF);
+                    Actuator_SetState(ACT_VALVE_TANK_IN, ACT_OFF);
+                    FlowSensor_ResetVolume(&sensor_outlet);
+                    currentState = STATE_FLUSHING;
+                }
+                break;
+
+            case STATE_FLUSHING:
+                Actuator_SetState(ACT_VALVE_TANK_OUT, ACT_ON);
+                Actuator_SetState(ACT_PUMP_OUT, ACT_ON);
+                FlowSensor_Start(&sensor_outlet);
+
+                /* Distribusikan hingga volume tercapai ATAU tangki pencampur terkuras habis */
+                if (FlowSensor_GetVolume(&sensor_outlet) >= active_schedule.target_vol_ml || isWtrLvl_Empty()) {
+                    Actuator_SetState(ACT_PUMP_OUT, ACT_OFF);
+                    Actuator_SetState(ACT_VALVE_TANK_OUT, ACT_OFF);
+                    FlowSensor_Stop(&sensor_outlet);
+
+                    Schedule_MarkAsFinish(active_schedule.id); /* Selesai, Update SD Card */
+                    currentState = STATE_SET_NEXT_ALARM;
+                }
+                break;
+
+            /* --- FASE 4: USER INTERVENTION & FAIL-SAFE --- */
+            case STATE_BT_INTERACTIVE:
+                /* Mode siaga mencegah sistem masuk deep sleep selama aplikasi HP terhubung */
+                break;
+
+            case STATE_SYNC_CONFIG:
+                /* Eksekusi penulisan jadwal baru dari Bluetooth ke SD Card.
+                   Setelah selesai, otomatis kembali ke evaluasi awal. */
+                ScheduleManager_Init();
+                currentState = STATE_EVALUATE_MISSED_SCHEDULE;
+                break;
+
+            case STATE_SENSOR_CALIBRATION:
+                /* Mengkalibrasi ulang batas atas dan kemiringan (slope) sensor. Menulis ke EEPROM. */
+                currentState = STATE_EVALUATE_MISSED_SCHEDULE;
+                break;
+
+            case STATE_FAULT:
+                /* MENGAPA: Hard Stop seketika! Semua penggerak fisik diputus arusnya.
+                   Mencegah motor terbakar atau kebun kebanjiran. */
+                Actuator_Init();
+                /* Berdiam di sini sampai command CMD_CLEAR_ALARM masuk dari Bluetooth */
+                break;
+
+            default:
+                currentState = STATE_INIT_HARDWARE;
+                break;
+        }
+
+        /* Pembaruan Kalkulasi DMA Background (Tidak membebani CPU) */
         WaterQuality_ProcessAnalog();
-        FlowSensor_Read(&sensor_inlet);
-        FlowSensor_Read(&sensor_outlet);
-        FlowSensor_Read(&sensor_fert);
-
-        HandleIrrigationRoutine();
-        HandleFertilizationRoutine();
-
     }
 }
 
+/**
+ * @brief Membangun FSM Task
+ */
 void APP_TaskCreate(UBaseType_t priority){
-	/* Antrean FSM dikonfigurasi menampung Pointer (sizeof(CommandEvent_t*))
-	   demi menjaga ukuran antrean konstan O(1) */
-    appQueue = xQueueCreate(10, sizeof(CommandEvent));
+    /* ATURAN EMAS: Harus ukuran pointer! Pass-by-Pointer menghindari Memory Leak */
+    appQueue = xQueueCreate(APP_QUEUE_SIZE, sizeof(CommandEvent_t *));
+
     if (appQueue != NULL) {
         xTaskCreate(vTaskApp, "AppTask", 1024, NULL, priority, &appTaskHandle);
     }

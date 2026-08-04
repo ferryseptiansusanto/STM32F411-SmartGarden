@@ -14,21 +14,40 @@
 
 #define UART_TIMEOUT_MS 1000
 
-// Inisialisasi struktur konteks default untuk USART2
-UART_Context uart1_ctx = { &huart1, NULL, NULL, NULL, {0}, {0} };
+// Maksimal instance UART yang didukung sistem (HC-05, ESP32, GPS, dll)
+#define MAX_UART_INSTANCES 3
 
-// Registry dinamis untuk manajemen callback interupsi multi-instance UART
-static UART_Context* uart_registry[] = { &uart1_ctx };
-#define UART_REGISTRY_COUNT (sizeof(uart_registry) / sizeof(uart_registry[0]))
+// Registry dinamis untuk manajemen callback interupsi multi-instance
+static UART_Context* uart_registry[MAX_UART_INSTANCES] = {NULL};
+static uint8_t registered_uarts_count = 0;
+
+// Inisialisasi struktur konteks default untuk USART2
+UART_Context uart1_ctx = { 0 };
+
+/**
+ * @brief  Mendaftarkan instance UART ke dalam registry internal untuk keperluan ISR Callback.
+ */
+static void Register_UART_Instance(UART_Context *dev) {
+    if (registered_uarts_count < MAX_UART_INSTANCES) {
+        // Cek apakah sudah terdaftar
+        for (uint8_t i = 0; i < registered_uarts_count; i++) {
+            if (uart_registry[i] == dev) return;
+        }
+        uart_registry[registered_uarts_count++] = dev;
+    }
+}
 
 /**
  * @brief  Menginisialisasi objek kontrol UART beserta sinkronisasi FreeRTOS-nya.
- * @param  dev    Pointer ke konteks UART_Context target.
- * @param  huart  Pointer ke handle HAL UART bawaan CubeMX.
+ * @param  dev          Pointer ke konteks UART_Context target.
+ * @param  huart_handle Pointer ke handle HAL UART bawaan CubeMX (misal: &huart1).
  */
-void UART_Init(UART_Context *dev) {
+void UART_Init(UART_Context *dev, UART_HandleTypeDef *huart_handle) {
     if (dev == NULL || dev->huart == NULL) return;
 
+    dev->huart = huart_handle;
+
+    // Alokasikan objek sinkronisasi RTOS
     dev->tx_sem = xSemaphoreCreateBinary();
     dev->tx_mutex = xSemaphoreCreateRecursiveMutex(); // Mutex pengaman tabrakan antar-task
     dev->rx_msg_buf = xMessageBufferCreate(UART_MSG_BUFFER_SIZE);
@@ -36,6 +55,9 @@ void UART_Init(UART_Context *dev) {
     // Pastikan memori buffer dibersihkan saat startup awal
     memset(dev->dma_rx_buffer, 0, sizeof(dev->dma_rx_buffer));
     memset(dev->dma_tx_buffer, 0, sizeof(dev->dma_tx_buffer));
+
+    // Daftarkan ke sistem untuk ISR
+	Register_UART_Instance(dev);
 }
 
 /**
@@ -44,49 +66,42 @@ void UART_Init(UART_Context *dev) {
  * @param  data  Pointer ke array data yang akan dikirim.
  * @param  len   Panjang data yang dikirim dalam hitungan Byte.
  * @retval HAL_StatusTypeDef Status eksekusi pengiriman (OK, ERROR, TIMEOUT).
+ * @note   Menggunakan Shadow Buffer (dma_tx_buffer) agar data asli (yang mungkin ada di stack lokal Task)
+ * aman dari kehancuran sebelum DMA selesai menyedotnya.
  */
+
 HAL_StatusTypeDef UART_Send(UART_Context *dev, const uint8_t *data, uint16_t len) {
     if (dev == NULL || dev->huart == NULL || dev->tx_sem == NULL || dev->tx_mutex == NULL || data == NULL || len == 0) {
         return HAL_ERROR;
     }
 
-    // Pengaman: Cegah buffer overflow jika ukuran frame melebihi kapasitas array persisten
     if (len > sizeof(dev->dma_tx_buffer)) return HAL_ERROR;
 
-    // [PERBAIKAN KUNCI 1]: Ambil Mutex untuk memblokir task lain yang mencoba menggunakan peripheral UART ini
+    // AMBIL KUNCI: Blokir Task lain yang ingin memakai UART ini
     if (xSemaphoreTakeRecursive(dev->tx_mutex, portMAX_DELAY) != pdPASS) {
         return HAL_TIMEOUT;
     }
 
-    // [PERBAIKAN KUNCI 2]: Salin data dari Stack RAM pemanggil ke Buffer Persisten Driver.
-    // Ini menjamin data tidak korup/hilang di tengah jalan saat mesin DMA bekerja di latar belakang.
+    // Salin ke Shadow Buffer yang persisten
     memcpy(dev->dma_tx_buffer, data, len);
 
-    // Jalankan transaksi perangkat keras via DMA
+    // Tembakkan DMA
     if (HAL_UART_Transmit_DMA(dev->huart, dev->dma_tx_buffer, len) != HAL_OK) {
-        xSemaphoreGive(dev->tx_mutex); // Pastikan kunci dilepas jika HAL menolak
+        // [PERBAIKAN]: Mutex yang diambil secara rekursif WAJIB dilepas secara rekursif!
+        xSemaphoreGiveRecursive(dev->tx_mutex);
         return HAL_ERROR;
     }
 
-    // Tunggu notifikasi sinyal selesai dari ISR (HAL_UART_TxCpltCallback) via Semaphore
+    // Tunggu notifikasi dari ISR (HAL_UART_TxCpltCallback)
     HAL_StatusTypeDef status = HAL_OK;
     if (xSemaphoreTake(dev->tx_sem, pdMS_TO_TICKS(UART_TIMEOUT_MS)) != pdPASS) {
-        // Penanganan Darurat: Jika hardware macet, paksa stop DMA agar peripheral tidak terkunci selamanya
-        HAL_UART_DMAStop(dev->huart);
+        HAL_UART_DMAStop(dev->huart); // Fail-Safe: Cegah hardware lockup
         status = HAL_TIMEOUT;
     }
 
-    // Lepaskan Mutex kembali agar task lain dapat mengantre untuk mengirim pesan berikutnya
+    // LEPASKAN KUNCI: Izinkan Task lain menggunakan UART
     xSemaphoreGiveRecursive(dev->tx_mutex);
     return status;
-}
-
-/**
- * @brief  Membaca data menggunakan metode Blocking murni (Hanya digunakan untuk debugging/operasional khusus).
- */
-HAL_StatusTypeDef UART_Receive(UART_Context *dev, uint8_t *data, uint16_t len) {
-    if (dev == NULL || dev->huart == NULL) return HAL_ERROR;
-    return HAL_UART_Receive(dev->huart, data, len, UART_TIMEOUT_MS);
 }
 
 /* -------------------------------------------------------------------------
@@ -95,6 +110,7 @@ HAL_StatusTypeDef UART_Receive(UART_Context *dev, uint8_t *data, uint16_t len) {
 
 /**
  * @brief  Mengaktifkan deteksi interupsi IDLE Line UART dan mengarahkan DMA RX.
+ * @note   Wajib dipanggil satu kali saat fase inisialisasi (STATE_INIT_HARDWARE).
  */
 HAL_StatusTypeDef UART_Wrapper_Start_Receive_DMA(UART_Context *dev) {
     if (dev == NULL || dev->huart == NULL) return HAL_ERROR;
@@ -154,7 +170,7 @@ void UART_Hardware_IRQHandler(UART_Context *dev) {
  */
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    for (size_t i = 0; i < UART_REGISTRY_COUNT; i++) {
+    for (size_t i = 0; i < registered_uarts_count; i++) {
         if (huart == uart_registry[i]->huart && uart_registry[i]->tx_sem != NULL) {
             // Berikan Semaphore untuk membangunkan Task pengirim yang sedang tertidur menunggu hardware selesai
             xSemaphoreGiveFromISR(uart_registry[i]->tx_sem, &xHigherPriorityTaskWoken);
@@ -169,7 +185,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
  */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    for (size_t i = 0; i < UART_REGISTRY_COUNT; i++) {
+    for (size_t i = 0; i < registered_uarts_count; i++) {
         UART_Context *dev = uart_registry[i];
         if (huart == dev->huart && dev->rx_msg_buf != NULL) {
             // Amankan seluruh isi buffer penuh ke FreeRTOS RAM, lalu restart DMA kembali

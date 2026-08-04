@@ -184,7 +184,7 @@ bool ScheduleManager_GetDueSchedule(SchedType_t type, ScheduleItem_t* out_item,
         }
     }
 
-    FatFsWrapper_Close(&sched_file_ctx);
+    FATFS_Close(&sched_file_ctx);
     return due_found;
 }
 

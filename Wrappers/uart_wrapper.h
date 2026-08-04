@@ -30,15 +30,16 @@ typedef struct {
 } UART_Context;
 
 extern UART_HandleTypeDef huart1;
+// Deklarasi global instance UART utama (Misal: HC-05 Bluetooth)
 extern UART_Context uart1_ctx;
 
-void UART_Init(UART_Context *dev);
+// --- API Wrapper Utama ---
+void UART_Init(UART_Context *dev, UART_HandleTypeDef *huart_handle);
 HAL_StatusTypeDef UART_Send(UART_Context *dev, const uint8_t *data, uint16_t len);
-HAL_StatusTypeDef UART_Receive(UART_Context *dev, uint8_t *data, uint16_t len);
+uint16_t UART_Receive_Message(UART_Context *dev, uint8_t *out_buf, uint16_t max_len, uint32_t timeout);
 
 // Fungsi khusus DMA + Message Buffer
 HAL_StatusTypeDef UART_Wrapper_Start_Receive_DMA(UART_Context *dev);
-uint16_t UART_Receive_Message(UART_Context *dev, uint8_t *out_buf, uint16_t max_len, uint32_t timeout);
 void UART_Hardware_IRQHandler(UART_Context *dev);
 
 #endif /* UART_WRAPPER_H_ */

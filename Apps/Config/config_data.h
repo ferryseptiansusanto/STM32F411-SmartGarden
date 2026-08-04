@@ -48,6 +48,14 @@ typedef struct {
 	uint32_t waiting_user_response_time; // ms
 	uint32_t max_delay_tolerance;        // ms
 
+	/* =========================================================
+	 * TAMBAHAN BARU: BATAS KRITIS AGRONOMI (SETPOINT)
+	 * ========================================================= */
+	float    max_ec_limit;   /**< Batas atas Electroconductivity (mS/cm). Memicu pengenceran/alarm. */
+	float    min_ph_limit;   /**< Batas bawah pH (terlalu asam). */
+	float    max_ph_limit;   /**< Batas atas pH (terlalu basa). */
+	// Anda bisa menambahkan max_tds_limit atau max_temp_limit jika diperlukan FSM.
+
 	/* --- Checksum --- */
 	/**
 	 * @brief CRC32 dari seluruh variabel di atas.

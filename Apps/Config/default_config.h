@@ -33,6 +33,11 @@ static const SensorCalibration_t factory_default_calib = {
     .waiting_user_response_time = 60000,   /* 60 Detik (1 Menit) */
     .max_delay_tolerance = 1800000,        /* 30 Menit */
 
+	// --- BATAS KRITIS DEFAULT (Contoh untuk Sayuran Daun Hidroponik) ---
+	.max_ec_limit = 2.5f,     /* EC di atas 2.5 mS/cm dianggap bahaya (keracunan nutrisi) */
+	.min_ph_limit = 5.5f,     /* Tanaman tidak bisa menyerap nutrisi di bawah pH ini */
+	.max_ph_limit = 6.5f,     /* Tanaman tidak bisa menyerap nutrisi di atas pH ini */
+
     // Checksum Awal
     .crc32 = 0                       /* Dihitung otomatis saat Load Default */
 };

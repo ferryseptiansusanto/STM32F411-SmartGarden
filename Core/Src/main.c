@@ -33,7 +33,10 @@
 #include "i2c_wrapper.h"
 #include "uart_wrapper.h"
 #include "Task/flowmeter_task.h"
+#include "command_task.h"
 #include "FSM/app_task.h"
+#include "ds3231_wrapper.h"
+#include "Config/board_config.h"
 
 /* USER CODE END Includes */
 
@@ -56,6 +59,7 @@
 
 /* USER CODE BEGIN PV */
 extern QueueHandle_t appQueue;
+DS3231_Device_t DS3231_Ctx;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -111,14 +115,15 @@ int main(void)
   /* Inisialisasi Wrapper Hardware */
   I2C_Init(&i2c1_ctx);
   SPI_Init(&spi1_ctx);
-  UART_Init(&uart1_ctx);
+  UART_Init(&uart1_ctx, &huart1);
 
+  DS3231_Init(&DS3231_Ctx, &i2c1_ctx, RTC_I2C_ADDR);
 
   // 1. Buat Task Utama terlebih dahulu (Ini akan menginisialisasi 'appQueue')
   APP_TaskCreate(tskIDLE_PRIORITY + 1);
 
   // 2. Buat Task Bluetooth, lalu masukkan 'appQueue' sebagai parameter ketiga
-  BLUETOOTH_AppTaskCreate(tskIDLE_PRIORITY + 2, &uart1_ctx, appQueue);
+  CMD_AppTaskCreate(tskIDLE_PRIORITY + 2, &uart1_ctx, appQueue);
 
   // 3. Buat Task Flowmeter
   Flowmeter_TaskCreate(tskIDLE_PRIORITY + 1);

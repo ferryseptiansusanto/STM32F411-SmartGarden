@@ -60,8 +60,9 @@ void CMD_TaskRx(void *pvParameters) {
         /* Menunggu sinyal/notifikasi asinkron dari ISR tanpa melakukan Poling (0% CPU load) */
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-        /* Mengambil data dari buffer DMA perangkat keras */
-        uint16_t length = UART_Fetch_DMA_Buffer(bl_device.ctx, temp_buf, sizeof(temp_buf));
+        // Parameter ke-4 adalah Timeout. Gunakan portMAX_DELAY agar Task tertidur 0% CPU
+        // sampai benar-benar ada data yang masuk dari ISR.
+        uint16_t length = UART_Receive_Message(bl_device.ctx, temp_buf, sizeof(temp_buf), portMAX_DELAY);
 
         if (length > 0) {
             /* Mencegah limpasan buffer akumulator */

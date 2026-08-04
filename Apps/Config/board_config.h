@@ -29,7 +29,7 @@
 /* ==============================================================================
  * 2. KONFIGURASI RTC (Default: DS3231)
  * ============================================================================== */
-#define RTC_I2C_ADDR           0xD0     // Alamat fisik IC RTC di bus I2C
+#define RTC_I2C_ADDR           0xD0     // Alamat fisik IC RTC di bus I2C kenapa bukan 0x68 karena 0x68<<1 ~ 0xD0
 
 /* ==============================================================================
  * 3. [OPSIONAL] KONFIGURASI PENGGANTI DI MASA DEPAN (Contoh)

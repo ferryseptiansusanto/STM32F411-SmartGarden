@@ -48,11 +48,12 @@ static const ActuatorType_t fert_valves[5] = {
 };
 
 /* Referensi Sensor Eksternal & Global (Sesuaikan dengan nama aktual di project Anda) */
-extern FlowSensor_t sensor_fert;
-extern FlowSensor_t sensor_inlet;
-extern FlowSensor_t sensor_outlet;
+extern FlowSensor_t fm_inlet;
+extern FlowSensor_t fm_outlet;
+extern FlowSensor_t fm_fert;
+
 extern SensorCalibration_t sys_calib;
-extern DS3231_Device_t sys_rtc;
+extern DS3231_Device_t DS3231_Ctx;
 
 /**
  * @brief   Task FreeRTOS Utama untuk FSM Tersentralisasi
@@ -88,7 +89,7 @@ static void vTaskApp(void *pvParameters) {
 
                         /* Routing Jalur Berdasarkan Enum dari file Anda */
                         if (active_sched.type == SCHED_TYPE_IRRIGATION) {
-                            FlowSensor_ResetVolume(&sensor_inlet);
+                            FlowSensor_ResetVolume(&fm_inlet);
                             currentState = STATE_IRRIGATING;
                         } else {
                             current_fert_index = 0;
@@ -112,7 +113,7 @@ static void vTaskApp(void *pvParameters) {
                 }
 
                 /* BEBASKAN MEMORI (ATURAN PINJAM PAKAI) */
-                if (evt_ptr->payload.str_ptr != NULL) vPortFree(evt_ptr->payload.str_ptr);
+                if (evt_ptr->payload.csv_data.str_ptr != NULL) vPortFree(evt_ptr->payload.csv_data.str_ptr);
                 vPortFree(evt_ptr);
             }
         }
@@ -159,7 +160,7 @@ static void vTaskApp(void *pvParameters) {
             /* --- EVALUASI JADWAL MENGGUNAKAN API BARU ANDA --- */
             case STATE_EVALUATE_MISSED_SCHEDULE: {
                 /* NOTE: Pastikan fungsi ini memanggil waktu Epoch aktual dari RTC hardware Anda */
-                uint32_t current_epoch = DS3231_GetEpochTime(&sys_rtc);
+                uint32_t current_epoch = DS3231_GetEpochTime(&DS3231_Ctx);
                 uint32_t tolerance_sec = sys_calib.max_delay_tolerance * 60;
 
                 if (!waiting_user_response) {
@@ -178,7 +179,7 @@ static void vTaskApp(void *pvParameters) {
                         }
                         else if (active_sched.status == SCHED_STATUS_PENDING) {
                             if (active_sched.type == SCHED_TYPE_IRRIGATION) {
-                                FlowSensor_ResetVolume(&sensor_inlet);
+                                FlowSensor_ResetVolume(&fm_inlet);
                                 currentState = STATE_IRRIGATING;
                             } else {
                                 current_fert_index = 0;
@@ -207,13 +208,13 @@ static void vTaskApp(void *pvParameters) {
             case STATE_IRRIGATING:
                 Actuator_SetState(ACT_VALVE_WATER_IN, ACT_ON);
                 Actuator_SetState(ACT_PUMP_OUT, ACT_ON);
-                FlowSensor_Start(&sensor_inlet);
+                FlowSensor_Start(&fm_inlet);
 
                 /* Mengambil data dari internal struct active_sched.recipe buatan Anda! */
-                if (FlowSensor_GetVolume(&sensor_inlet) >= active_sched.recipe.water_volume) {
+                if (FlowSensor_GetVolume(&fm_inlet) >= active_sched.recipe.water_volume) {
                     Actuator_SetState(ACT_VALVE_WATER_IN, ACT_OFF);
                     Actuator_SetState(ACT_PUMP_OUT, ACT_OFF);
-                    FlowSensor_Stop(&sensor_inlet);
+                    FlowSensor_Stop(&fm_inlet);
 
                     /* Gunakan API Update dan AutoReschedule Anda */
                     ScheduleManager_UpdateStatus(active_sched.type, active_sched.line_number, SCHED_STATUS_SUCCESS);
@@ -227,7 +228,7 @@ static void vTaskApp(void *pvParameters) {
             /* --- JALUR B: FERTIGASI --- */
             case STATE_PRE_FLUSHING:
                 if (isWtrLvl_Empty()) {
-                    FlowSensor_ResetVolume(&sensor_fert);
+                    FlowSensor_ResetVolume(&fm_fert);
                     currentState = STATE_DOSING;
                 } else {
                     Actuator_SetState(ACT_VALVE_TANK_OUT, ACT_ON);
@@ -243,7 +244,7 @@ static void vTaskApp(void *pvParameters) {
 
                 if (current_fert_index >= RECIPE_NUM_FERTILIZERS) {
                     Actuator_SetState(ACT_PUMP_FERT, ACT_OFF);
-                    FlowSensor_Stop(&sensor_fert);
+                    FlowSensor_Stop(&fm_fert);
 
                     mixing_start_tick = xTaskGetTickCount();
                     currentState = STATE_MIXING;
@@ -253,12 +254,12 @@ static void vTaskApp(void *pvParameters) {
                 ActuatorType_t active_valve = fert_valves[current_fert_index];
                 Actuator_SetState(active_valve, ACT_ON);
                 Actuator_SetState(ACT_PUMP_FERT, ACT_ON);
-                FlowSensor_Start(&sensor_fert);
+                FlowSensor_Start(&fm_fert);
 
-                if (FlowSensor_GetVolume(&sensor_fert) >= active_sched.recipe.fert_volumes[current_fert_index]) {
+                if (FlowSensor_GetVolume(&fm_fert) >= active_sched.recipe.fert_volumes[current_fert_index]) {
                     Actuator_SetState(active_valve, ACT_OFF);
                     Actuator_SetState(ACT_PUMP_FERT, ACT_OFF);
-                    FlowSensor_ResetVolume(&sensor_fert);
+                    FlowSensor_ResetVolume(&fm_fert);
                     current_fert_index++;
                 }
                 break;
@@ -277,7 +278,7 @@ static void vTaskApp(void *pvParameters) {
                 if ((xTaskGetTickCount() - mixing_start_tick) >= pdMS_TO_TICKS(active_sched.recipe.mixing_time_sec * 1000)) {
                     Actuator_SetState(ACT_MIXER, ACT_OFF);
                     Actuator_SetState(ACT_VALVE_TANK_IN, ACT_OFF);
-                    FlowSensor_ResetVolume(&sensor_outlet);
+                    FlowSensor_ResetVolume(&fm_outlet);
                     currentState = STATE_FLUSHING;
                 }
                 break;
@@ -285,12 +286,12 @@ static void vTaskApp(void *pvParameters) {
             case STATE_FLUSHING:
                 Actuator_SetState(ACT_VALVE_TANK_OUT, ACT_ON);
                 Actuator_SetState(ACT_PUMP_OUT, ACT_ON);
-                FlowSensor_Start(&sensor_outlet);
+                FlowSensor_Start(&fm_outlet);
 
-                if (FlowSensor_GetVolume(&sensor_outlet) >= active_sched.recipe.water_volume || isWtrLvl_Empty()) {
+                if (FlowSensor_GetVolume(&fm_outlet) >= active_sched.recipe.water_volume || isWtrLvl_Empty()) {
                     Actuator_SetState(ACT_PUMP_OUT, ACT_OFF);
                     Actuator_SetState(ACT_VALVE_TANK_OUT, ACT_OFF);
-                    FlowSensor_Stop(&sensor_outlet);
+                    FlowSensor_Stop(&fm_outlet);
 
                     /* Finalisasi Jadwal */
                     ScheduleManager_UpdateStatus(active_sched.type, active_sched.line_number, SCHED_STATUS_SUCCESS);

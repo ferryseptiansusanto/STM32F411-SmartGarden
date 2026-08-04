@@ -11,7 +11,11 @@
 typedef enum {
     CMD_ACTIVATE_PUMP = 0x01,
     CMD_WRITE_SCHED   = 0x02,
-    CMD_BLUETOOTH_CSV = 0x03 // String mentah dari luar
+    CMD_BLUETOOTH_CSV = 0x03, // String mentah dari luar
+	CMD_USER_CONFIRM_YES = 0x04,
+	CMD_USER_CONFIRM_NO = 0x05,
+	CMD_EMERGENCY_STOP = 0x06
+
 } CommandID_t;
 
 /**

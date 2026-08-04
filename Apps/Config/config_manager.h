@@ -19,18 +19,18 @@
  * Jika gagal/korup, otomatis memuat nilai dari default_config.h.
  * @return true jika data valid dari EEPROM, false jika memuat default.
  */
-bool Config_Init(void);
+bool ConfigManager_Init(void);
 
 /**
  * @brief Mengkalkulasi ulang CRC32 dan menyimpan struktur ke EEPROM.
  * @return true jika WriteBytes berhasil (Zero-Blocking).
  */
-bool Config_Save(void);
+bool ConfigManager_Save(void);
 
 /**
  * @brief Reset konfigurasi ke factory default secara manual.
  * @note  Pastikan memanggil Config_Save() setelah fungsi ini jika ingin permanen.
  */
-void Config_LoadDefault(void);
+void ConfigManager_LoadDefault(void);
 
 #endif /* APPS_CONFIG_MANAGER_H_ */

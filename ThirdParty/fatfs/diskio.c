@@ -7,7 +7,6 @@
 /* storage control modules to the FatFs module with a defined API.       */
 /*-----------------------------------------------------------------------*/
 
-#include <ds3231_wrapper.h>
 #include <storage_wrapper.h>
 #include "ff.h"			/* Basic definitions of FatFs */
 #include "diskio.h"		/* Declarations FatFs MAI */
@@ -16,7 +15,6 @@
 #define DEV_MMC		0	/* Map MMC/SD card to physical drive 1 */
 
 extern SPI_StorageDevice SDCard_Ctx;
-extern I2C_RTCDevice DS3231_Ctx;
 
 // [BUKU CATATAN FATFS]: Array untuk menyimpan pointer hardware berdasarkan nomor drive
 static SPI_StorageDevice *disk_devices[FF_VOLUMES] = {NULL};
@@ -150,18 +148,5 @@ DRESULT disk_ioctl (
 			return RES_PARERR;
 	}
 }
-
-DWORD get_fattime(void)
-{
-    DS3231_DateTime now = DS3231_GetDateTime(&DS3231_Ctx);
-
-    return ((DWORD)(now.date.year - 1980) << 25)
-         | ((DWORD)now.date.month << 21)
-         | ((DWORD)now.date.day << 16)
-         | ((DWORD)now.time.hours << 11)
-         | ((DWORD)now.time.minutes << 5)
-         | ((DWORD)(now.time.seconds / 2));
-}
-
 
 

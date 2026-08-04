@@ -19,8 +19,8 @@
  * @brief Struktur data matang dari sebuah resep pemupukan komplit.
  */
 typedef struct {
-    char     name[MAX_RECIPE_NAME_LEN];   /**< Nama resep, misal "FertKangkung" */
-    uint16_t fert_volumes[NUM_FERTILIZERS]; /**< Array volume pupuk (Indeks 0 = fert1) */
+    char     name[RECIPE_MAX_NAME_LEN];   /**< Nama resep, misal "FertKangkung" */
+    uint16_t fert_volumes[RECIPE_NUM_FERTILIZERS]; /**< Array volume pupuk (Indeks 0 = fert1) */
     uint16_t water_volume;                /**< Volume air baku (ml) */
     uint16_t mixing_time_sec;             /**< Lama pengadukan motor mixer (detik) */
 } FertRecipe_t;

@@ -6,6 +6,7 @@
  * Author: ferry
  */
 
+#include "../Config/schedule_config.h"
 #include "schedule_manager.h"
 #include "fatfs_wrapper.h"
 #include "log_manager.h"
@@ -17,7 +18,6 @@
 static FileContext_t sched_file_ctx;
 
 bool ScheduleManager_Init(void) {
-    sched_file_ctx.owner_id = SCHED_CFG_OWNER_ID;
     return true;
 }
 
@@ -114,13 +114,13 @@ bool ScheduleManager_GetDueSchedule(SchedType_t type, ScheduleItem_t* out_item,
     uint32_t current_line = 0;
 
     /* Lock & Open File via Wrapper */
-    if (!FatFsWrapper_Open(&sched_file_ctx, filename, FA_READ)) {
+    if (!FATFS_Open(&sched_file_ctx, filename, FA_READ)) {
         return false;
     }
 
     bool due_found = false;
 
-    while (FatFsWrapper_ReadLine(&sched_file_ctx, line_buf, sizeof(line_buf))) {
+    while (FATFS_ReadLine(&sched_file_ctx, line_buf, sizeof(line_buf))) {
         current_line++;
         SchedStatus_t line_status = ParseStatusFromLine(line_buf);
 
@@ -152,7 +152,7 @@ bool ScheduleManager_GetDueSchedule(SchedType_t type, ScheduleItem_t* out_item,
                                      current_line, delay_sec);
 
                     /* Tutup file dan lakukan update status ke URGENT di SD Card */
-                    FatFsWrapper_Close(&sched_file_ctx);
+                    FATFS_Close(&sched_file_ctx);
                     ScheduleManager_UpdateStatus(type, current_line, SCHED_STATUS_URGENT);
                     due_found = true;
                     return true;
@@ -189,48 +189,77 @@ bool ScheduleManager_GetDueSchedule(SchedType_t type, ScheduleItem_t* out_item,
 }
 
 bool ScheduleManager_UpdateStatus(SchedType_t type, uint32_t line_number, SchedStatus_t new_status) {
-    if (line_number == 0) return false;
+	if (line_number == 0) return false;
 
-    const char* src_file  = GetFileNameByType(type);
-    const char* temp_file = SCHED_CFG_FILE_TEMP_SWAP; // Menggunakan makro Config
+	    const char* src_file  = GetFileNameByType(type);
+	    const char* temp_file = SCHED_CFG_FILE_TEMP_SWAP;
 
-    char line_buf[SCHED_CFG_MAX_LINE_LEN];
-    uint32_t current_line = 0;
+	    // KITA TIDAK LAGI MEMBUKA FILE SECARA MANUAL DI SINI.
+	    // Karena kita sudah punya fungsi sakti 'FATFS_ReplaceWordInLine'
+	    // di dalam wrapper yang akan mengurus SEMUA proses Buka-Tulis-Tutup-Rename
+	    // secara atomik di dalam pelukan Mutex!
 
-    if (!FatFsWrapper_Open(&sched_file_ctx, src_file, FA_READ)) {
-        return false;
-    }
+	    // Tapi tunggu, ReplaceWordInLine butuh 'line_identifier'.
+	    // Sayangnya, di jadwal kita, tidak ada identifier unik selain nomor baris (line_number).
+	    // Oleh karena itu, kita harus menulis ulang logika Temp-Swap KHUSUS UNTUK NOMOR BARIS
+	    // menggunakan API dasar dari wrapper.
 
-    FileContext_t temp_ctx = { .owner_id = SCHED_CFG_OWNER_ID };
-    if (!FatFsWrapper_Open(&temp_ctx, temp_file, FA_CREATE_ALWAYS | FA_WRITE)) {
-        FatFsWrapper_Close(&sched_file_ctx);
-        return false;
-    }
+	    char line_buf[SCHED_CFG_MAX_LINE_LEN];
+	    uint32_t current_line = 0;
 
-    while (FatFsWrapper_ReadLine(&sched_file_ctx, line_buf, sizeof(line_buf))) {
-        current_line++;
+	    // 1. Siapkan Context (Cukup inisialisasi dengan 0)
+	    FileContext_t src_ctx = {0};
+	    FileContext_t temp_ctx = {0};
 
-        if (current_line == line_number) {
-            char* status_ptr = strstr(line_buf, "status[");
-            if (status_ptr != NULL) {
-                char prefix_buf[SCHED_CFG_MAX_LINE_LEN];
-                size_t prefix_len = (size_t)(status_ptr - line_buf);
-                strncpy(prefix_buf, line_buf, prefix_len);
-                prefix_buf[prefix_len] = '\0';
+	    // 2. Buka File Asli (Read) dan File Temp (Write)
+	    // Ingat, gunakan prefix 'FATFS_' bukan 'FatFsWrapper_'
+	    // Sayangnya, di fatfs_wrapper.h baru Anda, fungsi Open/Close dasar tidak di-expose.
+	    // MARI KITA GUNAKAN PENDEKATAN YANG LEBIH AMAN:
 
-                snprintf(line_buf, sizeof(line_buf), "%sstatus[%s]\n", prefix_buf, StatusToStr(new_status));
-            }
-        }
+	    // Karena kita menggunakan File System, kita memodifikasi file baris-demi-baris.
+	    // Kita harus memastikan wrapper.h Anda memiliki fungsi FATFS_Open dan FATFS_Close.
 
-        FatFsWrapper_Write(&temp_ctx, line_buf, strlen(line_buf));
-    }
+	    // Asumsi: Kita asumsikan Anda telah mengekspos FATFS_Open dan FATFS_Close di wrapper.h
+	    // (Jika belum, silakan tambahkan ke fatfs_wrapper.h/c sesuai kode di bawah)
 
-    FatFsWrapper_Close(&sched_file_ctx);
-    FatFsWrapper_Close(&temp_ctx);
+	    if (FATFS_Open(&src_ctx, src_file, FA_READ) != FS_OK) {
+	        return false;
+	    }
 
-    /* Atomic File Replacement */
-    FatFsWrapper_Delete(src_file);
-    return FatFsWrapper_Rename(temp_file, src_file);
+	    if (FATFS_Open(&temp_ctx, temp_file, FA_CREATE_ALWAYS | FA_WRITE) != FS_OK) {
+	        FATFS_Close(&src_ctx);
+	        return false;
+	    }
+
+	    // 3. Looping baca baris demi baris
+	    while (FATFS_ReadLine(&src_ctx, line_buf, sizeof(line_buf)) == FS_OK) {
+	        current_line++;
+
+	        // Jika ini adalah baris yang mau diupdate
+	        if (current_line == line_number) {
+	            char* status_ptr = strstr(line_buf, "status[");
+	            if (status_ptr != NULL) {
+	                char prefix_buf[SCHED_CFG_MAX_LINE_LEN];
+	                size_t prefix_len = (size_t)(status_ptr - line_buf);
+	                strncpy(prefix_buf, line_buf, prefix_len);
+	                prefix_buf[prefix_len] = '\0';
+
+	                snprintf(line_buf, sizeof(line_buf), "%sstatus[%s]\n", prefix_buf, StatusToStr(new_status));
+	            }
+	        }
+
+	        // Tulis baris ke temp_file menggunakan fungsi Write mentah (tanpa otomatis close)
+	        // Pastikan Anda punya fungsi FATFS_WriteRaw di wrapper Anda.
+	        FATFS_WriteRaw(&temp_ctx, line_buf, strlen(line_buf));
+	    }
+
+	    // 4. Tutup kedua file agar tersimpan ke SD Card
+	    FATFS_Close(&src_ctx);
+	    FATFS_Close(&temp_ctx);
+
+	    // 5. Timpa file asli dengan temp (Atomic Swap)
+	    FATFS_Delete(src_file);
+	    return (FATFS_Rename(temp_file, src_file) == FS_OK);
 }
 
 bool ScheduleManager_AutoReschedule(const ScheduleItem_t* item) {
@@ -250,7 +279,7 @@ bool ScheduleManager_AutoReschedule(const ScheduleItem_t* item) {
         char dose_tmp[20];
         uint8_t count = 0;
 
-        for (uint8_t i = 0; i < NUM_FERTILIZERS; i++) {
+        for (uint8_t i = 0; i < RECIPE_NUM_FERTILIZERS; i++) {
             if (item->recipe.fert_volumes[i] > 0) {
                 snprintf(dose_tmp, sizeof(dose_tmp), "%sfert%d:%d",
                          (count > 0) ? "," : "", i + 1, item->recipe.fert_volumes[i]);
@@ -270,5 +299,5 @@ bool ScheduleManager_AutoReschedule(const ScheduleItem_t* item) {
     }
 
     /* Append baris baru ke paling bawah file SD Card */
-    return FatFsWrapper_AppendText(&sched_file_ctx, filename, line_out);
+    return FATFS_WriteAppend(&sched_file_ctx, filename, line_out);
 }

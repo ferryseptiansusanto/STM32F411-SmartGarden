@@ -84,6 +84,56 @@ bool DS3231_SetDateTime(DS3231_Device_t *dev, const DS3231_DateTime_t *dt) {
 }
 
 /**
+ * @brief  Membaca RTC dan mengkalkulasi Unix Epoch Time (Detik sejak 1 Jan 1970).
+ * @note   Menggunakan kalkulasi O(1) dengan array hari. Mendukung kompensasi tahun kabisat (Leap Year).
+ * @param  dev Pointer ke objek DS3231.
+ * @retval 32-bit integer (Total detik), atau 0 jika pembacaan I2C gagal.
+ */
+uint32_t DS3231_GetEpochTime(DS3231_Device_t *dev) {
+    if (dev == NULL || dev->i2c_ctx == NULL) return 0;
+
+    DS3231_DateTime_t dt;
+
+    /* Lakukan Burst Read dari Chip RTC (Mencegah Midnight Rollover Bug) */
+    if (!DS3231_GetDateTime(dev, &dt)) {
+        return 0; // Kembalikan 0 sebagai tanda error/kegagalan bus I2C
+    }
+
+    /* Proteksi Kewarasan (Sanity Check) */
+    if (dt.date.year < 1970 || dt.date.month < 1 || dt.date.month > 12 ||
+        dt.date.date < 1 || dt.date.date > 31) {
+        return 0;
+    }
+
+    /* Tabel konstan (Disimpan di ROM/Flash) untuk mempercepat perhitungan hari */
+    static const uint16_t days_before_month[] = {
+        0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
+    };
+
+    /* 1. Kalkulasi offset tahun dari 1970 */
+    uint32_t y = (uint32_t)(dt.date.year - 1970);
+
+    /* 2. Hitung jumlah tahun kabisat yang telah berlalu */
+    uint32_t leap_years = (y + 1) / 4;
+
+    /* 3. Hitung total hari dari komponen Tahun, Bulan, dan Tanggal */
+    uint32_t total_days = (y * 365) + leap_years + days_before_month[dt.date.month - 1] + (uint32_t)(dt.date.date - 1);
+
+    /* 4. Koreksi ekstra untuk hari di bulan Februari pada tahun kabisat yang SEDANG berjalan */
+    if ((dt.date.year % 4 == 0) && (dt.date.month > 2)) {
+        total_days += 1;
+    }
+
+    /* 5. Konversi semuanya ke dalam detik */
+    uint32_t epoch_seconds = (total_days * 86400UL) +
+                             ((uint32_t)dt.time.hours * 3600UL) +
+                             ((uint32_t)dt.time.minutes * 60UL) +
+                             (uint32_t)dt.time.seconds;
+
+    return epoch_seconds;
+}
+
+/**
  * @brief Membaca Jam saja (Hours, Minutes, Seconds).
  */
 bool DS3231_GetTime(DS3231_Device_t *dev, DS3231_Time_t *t) {

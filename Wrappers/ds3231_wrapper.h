@@ -75,6 +75,12 @@ bool DS3231_Init(DS3231_Device_t *dev, I2C_Context *i2c, uint16_t addr);
 // --- API DateTime (Lengkap) ---
 bool DS3231_GetDateTime(DS3231_Device_t *dev, DS3231_DateTime_t *dt);
 bool DS3231_SetDateTime(DS3231_Device_t *dev, const DS3231_DateTime_t *dt);
+/**
+ * @brief Membaca waktu dari RTC DS3231 dan mengonversinya langsung menjadi detik Unix Epoch.
+ * @param dev Pointer ke objek DS3231_Device_t.
+ * @return Waktu dalam detik sejak 1 Januari 1970 (Unix Epoch), atau 0 jika I2C gagal.
+ */
+uint32_t DS3231_GetEpochTime(DS3231_Device_t *dev);
 
 // --- API Time Saja ---
 bool DS3231_GetTime(DS3231_Device_t *dev, DS3231_Time_t *t);

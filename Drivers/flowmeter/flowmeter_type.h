@@ -26,8 +26,8 @@
  * Terpisah dari konfigurasi hardware Timer (Layer Abstraksi Logis).
  */
 typedef enum {
-    FM_WATER_INLET = 0,  ///< Flowmeter Jalur Masuk (TIM5 Channel 2)
-    FM_FERT_OUTLET,      ///< Flowmeter Jalur Irigasi ke Tanaman (TIM9 Channel 1)
+	FM_TANK_IN = 0,  ///< Flowmeter Jalur Masuk (TIM5 Channel 2)
+    FM_MAIN_OUTLET,      ///< Flowmeter Jalur Irigasi ke Tanaman (TIM9 Channel 1)
     FM_FERT,             ///< Flowmeter Jalur Pupuk (TIM2 Channel 1)
     FM_MAX               ///< Sentinel value untuk batas array/validasi
 } FlowSensorID_t;

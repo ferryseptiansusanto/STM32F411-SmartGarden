@@ -5,7 +5,7 @@
  */
 
 #include "flowmeter/flowmeter_driver.h"
-#include "config_data.h" // Mengakses sys_calib global (RAM tersinkronisasi dari EEPROM)
+#include "../Apps/Config/config_data.h" // Mengakses sys_calib global (RAM tersinkronisasi dari EEPROM)
 #include <stddef.h>
 
 void FlowSensor_Init(FlowSensor_t *sensor, FlowSensorID_t id, uint16_t type, TIM_HandleTypeDef* htim, uint32_t channel) {
@@ -81,11 +81,11 @@ void FlowSensor_Read(FlowSensor_t *sensor) {
 
     // SINKRONISASI ENUM DENGAN file .h
     switch (sensor->sensor_id) {
-        case FM_WATER_INLET:
+        case FM_TANK_IN:
             total_pulses_per_liter = (float)sys_calib.fm_inlet_pulse_per_liter;
             break;
 
-        case FM_FERT_OUTLET:
+        case FM_MAIN_OUTLET:
             total_pulses_per_liter = (float)sys_calib.fm_outlet_pulse_per_liter;
             break;
 

@@ -7,10 +7,12 @@
 #include "delay.h"
 #include <stdio.h>
 
-// Inisialisasi awal. Pastikan cs_port dan cs_pin diisi di main.c nanti sesuai perangkatnya.
-SPI_Context spi1_ctx = { &hspi1, NULL, NULL, NULL, NULL };
+
 
 extern SPI_HandleTypeDef hspi1;
+
+// Inisialisasi awal. Pastikan cs_port dan cs_pin diisi di main.c nanti sesuai perangkatnya.
+SPI_Context spi1_ctx = { &hspi1, NULL, NULL, NULL, NULL };
 
 // Registri dinamis untuk Callback ISR
 static SPI_Context* spi_registry[] = { &spi1_ctx };
@@ -63,7 +65,7 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi) {
             break;
         }
     }
-    YIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 // Handler Error Wajib agar Task tidak hang

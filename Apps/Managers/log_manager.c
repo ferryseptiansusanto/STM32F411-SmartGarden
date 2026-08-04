@@ -7,22 +7,21 @@
  */
 
 #include "log_manager.h"
-#include "log_config.h"       /* <-- BARU: Menarik konfigurasi terpusat */
-#include "ds3231_wrapper.h"
-#include "fatfs_wrapper.h"
+#include "../Config/log_config.h"       /* <-- BARU: Menarik konfigurasi terpusat */
+#include "../Wrappers/ds3231_wrapper.h"
+#include "../Wrappers/fatfs_wrapper.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
 
 /* Konteks Mutlak: Setiap Manager punya "Identitas" antrean untuk akses SD Card */
 static FileContext_t log_file_ctx;
-
+extern DS3231_Device_t DS3231_Ctx;
 bool LogManager_Init(void) {
     /* MENGAPA CONTEXT DIBUTUHKAN:
        Mendaftarkan identitas modul ini ke fatfs_wrapper agar saat Log Manager
        berusaha menulis di detik yang sama dengan Schedule Manager membaca jadwal,
        Wrapper bisa mengantrekannya dengan aman via RTOS Mutex. */
-    log_file_ctx.owner_id = 1; // ID 1 Khusus untuk Log Manager
     return true;
 }
 
@@ -40,10 +39,10 @@ bool LogManager_Write(LogLevel_t level, const char* format, ...) {
     /* Memori dilindungi secara dinamis oleh makro dari log_config.h */
     char log_buffer[MAX_LOG_LENGTH];
     char message_buffer[80];
-    DS3231_DateTime now;
+    DS3231_DateTime_t now;
 
     /* 1. MENGAMBIL WAKTU TERKINI (ZERO-BLOCKING via ds3231_wrapper) */
-    if (!DS3231_GetTime(&now)) {
+    if (!DS3231_GetDateTime(&DS3231_Ctx, &now)) {
         /* Jika RTC gagal dibaca (I2C error), gunakan timestamp darurat */
         memset(&now, 0, sizeof(now));
     }
@@ -56,7 +55,7 @@ bool LogManager_Write(LogLevel_t level, const char* format, ...) {
 
     /* 3. MERAKIT STRING LOG FINAL */
     snprintf(log_buffer, sizeof(log_buffer), "[%04d-%02d-%02d %02d:%02d:%02d] [%s] %s\n",
-             now.date.year, now.date.month, now.date.day,
+             now.date.year, now.date.month, now.date.date,
              now.time.hours, now.time.minutes, now.time.seconds,
              LogManager_LevelToStr(level),
              message_buffer);
@@ -64,5 +63,5 @@ bool LogManager_Write(LogLevel_t level, const char* format, ...) {
     /* 4. MELEMPAR STRING MATANG KE LAPISAN WRAPPER
        Tugas Log Manager selesai di sini. Menggunakan makro LOG_SYSTEM_FILENAME
        agar kebal dari hardcoding lokal. */
-    return FatFsWrapper_AppendText(&log_file_ctx, LOG_SYSTEM_FILENAME, log_buffer);
+    return FATFS_WriteAppend(&log_file_ctx, LOG_SYSTEM_FILENAME, log_buffer);
 }

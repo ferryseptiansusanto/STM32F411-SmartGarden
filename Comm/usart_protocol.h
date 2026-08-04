@@ -17,6 +17,12 @@
 #include "usart_datalink.h"
 #include "command_event.h"
 
+typedef struct {
+    int cmd;
+    uint8_t payload[64];
+    uint8_t len;
+} USART_Message;
+
 /**
  * @brief Mengirim pesan terstruktur keluar melalui protokol USART.
  * @param dev Pointer ke konteks hardware UART

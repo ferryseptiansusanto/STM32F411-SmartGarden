@@ -32,9 +32,8 @@
 #include "spi_wrapper.h"
 #include "i2c_wrapper.h"
 #include "uart_wrapper.h"
-#include "bluetooth_task.h"
-#include "flowmeter_task.h"
-#include "app_task.h"
+#include "Task/flowmeter_task.h"
+#include "FSM/app_task.h"
 
 /* USER CODE END Includes */
 

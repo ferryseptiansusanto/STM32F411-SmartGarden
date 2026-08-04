@@ -23,14 +23,13 @@
  */
 #define SCHED_CFG_FILE_IRRIGATION       "jadwal_air.txt"
 
+/* File temporary ini mutlak dibutuhkan untuk metode "Temp-Swap" (Fail-Safe)
+ * saat FSM memperbarui status jadwal agar data tidak rusak saat mati listrik. */
+#define SCHED_CFG_FILE_TEMP_SWAP    	"temp_sched.txt"
+
 /**
  * @brief Panjang maksimal 1 baris teks jadwal di SD Card.
  */
-#define SCHED_CFG_MAX_LINE_LEN          160
-
-/**
- * @brief Identitas unik pemilik Mutex FileContext_t untuk Schedule Manager.
- */
-#define SCHED_CFG_OWNER_ID              2
+#define SCHED_CFG_MAX_LINE_LEN          128
 
 #endif /* MANAGERS_SCHEDULE_CONFIG_H_ */

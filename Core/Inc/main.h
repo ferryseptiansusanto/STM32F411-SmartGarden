@@ -61,8 +61,8 @@ void Error_Handler(void);
 #define SYS_WKUP_GPIO_Port GPIOA
 #define FM_TANK_IN_Pin GPIO_PIN_1
 #define FM_TANK_IN_GPIO_Port GPIOA
-#define FM_FLUSH_OUTLET_Pin GPIO_PIN_2
-#define FM_FLUSH_OUTLET_GPIO_Port GPIOA
+#define FM_MAIN_OUTLET_Pin GPIO_PIN_2
+#define FM_MAIN_OUTLET_GPIO_Port GPIOA
 #define PH_Pin GPIO_PIN_3
 #define PH_GPIO_Port GPIOA
 #define SPI1_CS_Pin GPIO_PIN_4

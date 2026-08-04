@@ -1,8 +1,18 @@
+/**
+ * @file    fatfs_wrapper.c
+ * @brief   Implementasi proteksi akses memori SD Card (Recursive Mutex Native).
+ */
+
 #include "fatfs_wrapper.h"
+#include "storage_wrapper.h"
+#include "diskio.h"
 #include <string.h>
+#include "ds3231_wrapper.h" // Di-include di sini untuk akses RTC
 
 static FATFS fs;
 static SemaphoreHandle_t FatFs_Mutex = NULL;
+
+extern DS3231_Device_t DS3231_Ctx; // Objek RTC utama dari Layer Aplikasi
 
 /**
  * @brief Inisialisasi Mutex untuk melindungi SD Card.
@@ -10,7 +20,7 @@ static SemaphoreHandle_t FatFs_Mutex = NULL;
  */
 void FATFS_InitMutex(void) {
     if (FatFs_Mutex == NULL) {
-        FatFs_Mutex = xSemaphoreCreateMutex();
+        FatFs_Mutex = xSemaphoreCreateRecursiveMutex(); // GUNAKAN CREATERECURSIVEMUTEX
     }
 }
 
@@ -34,6 +44,69 @@ FS_Status FATFS_Mount(const char* drive_path, BYTE pdrv, SPI_StorageDevice *dev)
 }
 
 /**
+ * @brief  Melepas (Unmount) SD Card dari sistem file dan menonaktifkan daya hardware.
+ * @note   Sangat krusial dipanggil sebelum FSM masuk ke STOP Mode (Deep Sleep)
+ * atau saat operator ingin mencabut SD Card.
+ */
+FS_Status FATFS_Unmount(const char* drive_path, BYTE pdrv) {
+    if (pdrv >= FF_VOLUMES) return FS_ERROR_MOUNT;
+
+    FS_Status status = FS_ERROR_MOUNT;
+
+    // 1. Ambil Recursive Mutex untuk memastikan tidak ada Task lain yang sedang membaca/menulis
+    if (FatFs_Mutex != NULL && xSemaphoreTakeRecursive(FatFs_Mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+
+        // 2. Panggil IOCTL untuk de-inisialisasi daya/hardware di level diskio.c (jika didukung)
+        disk_ioctl(pdrv, CTRL_POWER, NULL);
+
+        // 3. Unmount sistem file dari RAM FatFs (Passing NULL ke f_mount)
+        FRESULT res = f_mount(NULL, (drive_path != NULL) ? drive_path : "", 0);
+
+        if (res == FR_OK) {
+            status = FS_OK;
+        }
+
+        // 4. Lepas Recursive Mutex
+        xSemaphoreGiveRecursive(FatFs_Mutex);
+    }
+
+    return status;
+}
+
+FS_Status FATFS_Open(FileContext_t *ctx, const char *path, BYTE mode) {
+    if (FatFs_Mutex == NULL) return FS_ERROR_OPEN;
+    if (xSemaphoreTakeRecursive(FatFs_Mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        if (f_open(&ctx->file, path, mode) == FR_OK) {
+            return FS_OK;
+        }
+        xSemaphoreGiveRecursive(FatFs_Mutex); // Batal buka, kembalikan gembok
+    }
+    return FS_ERROR_OPEN;
+}
+
+FS_Status FATFS_Close(FileContext_t *ctx) {
+    f_close(&ctx->file);
+    xSemaphoreGiveRecursive(FatFs_Mutex); // Lepas gembok
+    return FS_OK;
+}
+
+FS_Status FATFS_WriteRaw(FileContext_t *ctx, const void *data, UINT len) {
+	if (ctx == NULL || data == NULL || FatFs_Mutex == NULL) return FS_ERROR_WRITE;
+
+	FS_Status status = FS_ERROR_WRITE;
+
+	// Ambil gembok rekursif untuk validasi kepemilikan
+	if (xSemaphoreTakeRecursive(FatFs_Mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+		UINT bw;
+		if (f_write(&ctx->file, data, len, &bw) == FR_OK && bw == len) {
+			status = FS_OK;
+		}
+		xSemaphoreGiveRecursive(FatFs_Mutex);
+	}
+	return status;
+}
+
+/**
  * @brief  Menulis data ke akhir file (Append) secara aman.
  * @note   MENGAPA KITA PAKAI MUTEX DI SINI? Jika log_manager (Prioritas Rendah)
  * sedang menulis log, dan tiba-tiba schedule_manager (Prioritas Tinggi)
@@ -44,7 +117,7 @@ FS_Status FATFS_WriteAppend(FileContext_t *ctx, const char *path, const char *da
     if (FatFs_Mutex == NULL) return FS_ERROR_OPEN;
 
     // Tunggu maksimal 1000ms untuk mendapatkan akses SD Card (Fail-Safe)
-    if (xSemaphoreTake(FatFs_Mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+    if (xSemaphoreTakeRecursive(FatFs_Mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
 
         FS_Status status = FS_OK;
         UINT bytes_written;
@@ -60,7 +133,7 @@ FS_Status FATFS_WriteAppend(FileContext_t *ctx, const char *path, const char *da
         }
 
         // SELALU KEMBALIKAN MUTEX! Jika tidak, seluruh sistem yang butuh SD Card akan Deadlock.
-        xSemaphoreGive(FatFs_Mutex);
+        xSemaphoreGiveRecursive(FatFs_Mutex);
         return status;
     }
 
@@ -87,7 +160,7 @@ FS_Status FATFS_Read(FileContext_t *ctx, const char *path, char *buffer, UINT bu
     FS_Status status = FS_LOCKED;
 
     // 1. KUNCI SD CARD (Tunggu maksimal 1 detik agar tidak Deadlock)
-    if (xSemaphoreTake(FatFs_Mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+    if (xSemaphoreTakeRecursive(FatFs_Mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
 
         // 2. Buka file khusus untuk mode baca (Read)
         if (f_open(&ctx->file, path, FA_READ) == FR_OK) {
@@ -113,7 +186,98 @@ FS_Status FATFS_Read(FileContext_t *ctx, const char *path, char *buffer, UINT bu
         }
 
         // 5. KEMBALIKAN KUNCI SD CARD KEPADA SISTEM
-        xSemaphoreGive(FatFs_Mutex);
+        xSemaphoreGiveRecursive(FatFs_Mutex);
+    }
+
+    return status;
+}
+
+
+FS_Status FATFS_ReadLine(FileContext_t *ctx, char *buffer, int len) {
+    if (ctx == NULL || buffer == NULL || FatFs_Mutex == NULL) return FS_ERROR_READ;
+
+    FS_Status status = FS_ERROR_READ;
+
+    if (xSemaphoreTakeRecursive(FatFs_Mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        if (f_gets(buffer, len, &ctx->file) != NULL) {
+            status = FS_OK;
+        }
+        xSemaphoreGiveRecursive(FatFs_Mutex);
+    }
+    return status;
+}
+
+/**
+ * @brief  Mengganti kata spesifik pada baris yang mengandung keyword tertentu (Temp-Swap Method).
+ * @param  filepath         Nama file target (contoh: "jadwal.txt")
+ * @param  line_identifier  Keyword penanda baris (contoh: "2026-07-29 08:00:00")
+ * @param  old_word         Kata yang ingin diganti (contoh: "pending")
+ * @param  new_word         Kata pengganti (contoh: "success")
+ * @return FS_OK jika berhasil.
+ * * @note   FAIL-SAFE: Menggunakan metode Temp-Swap. Membaca baris demi baris,
+ * disalin ke temp.csv, lalu di-rename. Aman 100% dari mati listrik mendadak!
+ */
+FS_Status FATFS_ReplaceWordInLine(const char *filepath, const char *line_identifier, const char *old_word, const char *new_word) {
+    if (FatFs_Mutex == NULL) return FS_ERROR_OPEN;
+
+    FS_Status status = FS_ERROR_WRITE;
+    const char *temp_file = "temp.txt";
+
+    // 1. Kunci SD Card secara penuh (Atomic Transaction)
+    if (xSemaphoreTakeRecursive(FatFs_Mutex, pdMS_TO_TICKS(3000)) == pdTRUE) {
+
+        FIL f_source, f_temp;
+        char buffer[256]; // Alokasi RAM kecil, cukup untuk 1 baris jadwal
+
+        // 2. Buka file asli (READ) dan buat file sementara (WRITE)
+        if (f_open(&f_source, filepath, FA_READ) == FR_OK) {
+            if (f_open(&f_temp, temp_file, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK) {
+
+                status = FS_OK;
+
+                // 3. Baca baris demi baris (Hemat RAM)
+                while (f_gets(buffer, sizeof(buffer), &f_source)) {
+
+                    // Apakah baris ini adalah baris target yang dicari?
+                    if (strstr(buffer, line_identifier) != NULL) {
+
+                        // Cari posisi kata lama yang ingin diganti
+                        char *pos = strstr(buffer, old_word);
+                        if (pos != NULL) {
+                            // Hitung panjang teks sebelum kata target
+                            int prefix_len = pos - buffer;
+
+                            // Tulis potongan awal sebelum kata
+                            f_write(&f_temp, buffer, prefix_len, NULL);
+                            // Tulis kata baru ("success")
+                            f_write(&f_temp, new_word, strlen(new_word), NULL);
+                            // Tulis sisa teks di belakangnya
+                            f_write(&f_temp, pos + strlen(old_word), strlen(pos + strlen(old_word)), NULL);
+                            continue; // Lanjut ke iterasi while berikutnya
+                        }
+                    }
+
+                    // Jika bukan baris target, salin teks utuh apa adanya
+                    f_write(&f_temp, buffer, strlen(buffer), NULL);
+                }
+
+                f_close(&f_temp);
+            }
+            f_close(&f_source);
+        }
+
+        // 4. Jika penyalinan sukses, lakukan penghapusan dan RENAME
+        if (status == FS_OK) {
+            f_unlink(filepath);                // Hapus file asli
+            f_rename(temp_file, filepath);     // Ubah nama temp.txt menjadi nama file asli
+        } else {
+            f_unlink(temp_file);               // Jika gagal, bersihkan file sampah
+        }
+
+        // 5. Lepas kunci Mutex
+        xSemaphoreGiveRecursive(FatFs_Mutex);
+    } else {
+        status = FS_LOCKED;
     }
 
     return status;
@@ -128,7 +292,7 @@ FS_Status FATFS_Delete(const char *path) {
 
     FS_Status status = FS_LOCKED;
 
-    if (xSemaphoreTake(FatFs_Mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+    if (xSemaphoreTakeRecursive(FatFs_Mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
         FRESULT res = f_unlink(path);
 
         // FR_NO_FILE dianggap OK karena tujuannya memang agar file tidak ada
@@ -138,7 +302,61 @@ FS_Status FATFS_Delete(const char *path) {
             status = FS_ERROR_WRITE;
         }
 
-        xSemaphoreGive(FatFs_Mutex);
+        xSemaphoreGiveRecursive(FatFs_Mutex);
     }
     return status;
+}
+
+/**
+ * @brief  Mengubah nama file secara aman (Thread-Safe).
+ * @param  old_name    Nama file saat ini (contoh: "temp.txt").
+ * @param  new_name    Nama file tujuan (contoh: "jadwal.txt").
+ * @return FS_OK jika sukses.
+ * @note   MENGAPA KITA BUTUH INI? Sangat krusial untuk metode "Temp-Swap"
+ * (Fail-Safe) di Layer Aplikasi saat memperbarui status baris jadwal.
+ * Memastikan FSM tidak pernah kehilangan data jika listrik mati mendadak.
+ */
+FS_Status FATFS_Rename(const char *old_name, const char *new_name) {
+    if (FatFs_Mutex == NULL) return FS_ERROR_OPEN;
+
+    FS_Status status = FS_LOCKED;
+
+    // KUNCI SD CARD (Tunggu maksimal 1 detik)
+    if (xSemaphoreTakeRecursive(FatFs_Mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+
+        // Panggil fungsi bawaan FatFs untuk rename
+        FRESULT res = f_rename(old_name, new_name);
+
+        if (res == FR_OK) {
+            status = FS_OK;
+        } else {
+            // Bisa jadi karena file old_name tidak ada, atau new_name sudah ada
+            status = FS_ERROR_WRITE;
+        }
+
+        // LEPASKAN KUNCI SD CARD
+        xSemaphoreGiveRecursive(FatFs_Mutex);
+    }
+    return status;
+}
+
+/**
+ * @brief  Callback Wajib FatFs untuk memberikan Stempel Waktu (Timestamp).
+ * @note   Dipanggil oleh ff.c saat operasi file (f_open, f_write, dll).
+ */
+DWORD get_fattime(void) {
+    DS3231_DateTime_t now;
+
+    // Membaca RTC via DS3231 Wrapper (Layer 2 Middleware)
+    if (DS3231_GetDateTime(&DS3231_Ctx, &now)) {
+        return ((DWORD)(now.date.year - 1980) << 25)  //Bit 31:25 (7 bit): Tahun (Dihitung dari 1980)
+             | ((DWORD)now.date.month         << 21)  //Bit 24:21 (4 bit): Bulan (1-12)
+             | ((DWORD)now.date.date          << 16)  //Bit 20:16 (5 bit): Tanggal (1-31)
+             | ((DWORD)now.time.hours         << 11)  //Bit 15:11 (5 bit): Jam (0-23)
+             | ((DWORD)now.time.minutes       << 5)   //Bit 10:5  (6 bit): Menit (0-59)
+             | ((DWORD)(now.time.seconds / 2));       //Bit 4:0   (5 bit): Detik dibagi 2 (0-29)
+    }
+
+    // Fail-Safe: Waktu default (1 Jan 2026 00:00:00) jika RTC gagal dibaca
+    return ((DWORD)(2026 - 1980) << 25) | ((DWORD)1 << 21) | ((DWORD)1 << 16);
 }

@@ -6,7 +6,7 @@
  */
 
 #include "water_quality_driver.h"
-#include "config_data.h"    // Jembatan ke sys_calib (dari EEPROM)
+#include "../Apps/Config/config_data.h"    // Jembatan ke sys_calib (dari EEPROM)
 #include "FreeRTOS.h"
 #include "task.h"
 

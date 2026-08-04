@@ -9,12 +9,14 @@
  */
 
 #include "config_manager.h"
+#include "../Managers/log_manager.h"
+
 #include "default_config.h"  // Menarik nilai ROM baku (static const)
 #include "eeprom_wrapper.h"  // API Layer 2 untuk memori
 #include "board_config.h"    // <<-- BARU: Menarik parameter spesifikasi Hardware
 
 /* Definisi Variabel Global (Akan menempati RAM) */
-SystemConfig_t sys_calib;
+SensorCalibration_t sys_calib;
 
 /* Deklarasikan Objek EEPROM untuk AT24C32 (Kapasitas 32Kb / 4KB, Page Size 32 Byte) */
 EEPROM_Device_t sys_eeprom;
@@ -24,9 +26,9 @@ extern I2C_Context i2c1_ctx; // Diasumsikan instance I2C Layer 1 sudah dibuat di
  * @brief Private function untuk menghitung CRC32.
  * MENGAPA: Melindungi sistem dari 'Data Tearing' jika mati listrik saat Save.
  */
-static uint32_t Calculate_CRC32(SystemConfig_t *data) {
+static uint32_t Calculate_CRC32(SensorCalibration_t *data) {
     // Hitung panjang bit semua variabel, KECUALI variabel crc32 di baris terakhir
-    uint32_t size_to_calc = sizeof(SystemConfig_t) - sizeof(uint32_t);
+    uint32_t size_to_calc = sizeof(SensorCalibration_t) - sizeof(uint32_t);
 
     // TODO: Ganti dengan Hardware CRC bawaan STM32 (HAL_CRC_Calculate)
     // return HAL_CRC_Calculate(&hcrc, (uint32_t*)data, size_to_calc / 4);
@@ -35,14 +37,16 @@ static uint32_t Calculate_CRC32(SystemConfig_t *data) {
     return dummy_crc;
 }
 
-void Config_LoadDefault(void) {
-	// Salin nilai baku (ROM) ke RAM
+void ConfigManager_LoadDefault(void) {
+	// Salin nilai baku (dari Flash/ROM) ke RAM
 	sys_calib = factory_default_calib;
 	// Kalkulasi CRC untuk data baku agar sistem mengenalinya sebagai data valid
 	sys_calib.crc32 = Calculate_CRC32(&sys_calib);
+
+	LogManager_Write(LOG_INFO, "Memuat Factory Default Config ke RAM.");
 }
 
-bool Config_Init(void) {
+bool ConfigManager_Init(void) {
     /*
      * MENGAPA (Why): FSM pada saat booting (STATE_LOAD_CALIBRATION) akan mengeksekusi ini.
      * Jika I2C sehat, kita periksa Magic Word-nya. Jika Magic Word salah (misal 0xFFFFFFFF),
@@ -53,26 +57,44 @@ bool Config_Init(void) {
 	EEPROM_Init(&sys_eeprom, &i2c1_ctx, EEPROM_I2C_ADDR, EEPROM_PAGE_SIZE, EEPROM_TOTAL_SIZE);
 
 	// 2. Baca menggunakan API Wrapper asinkron
-	bool i2c_success = EEPROM_ReadBytes(&sys_eeprom, EEPROM_CONFIG_ADDRESS, (uint8_t*)&sys_calib, sizeof(SystemConfig_t));
+	bool i2c_success = EEPROM_ReadBytes(&sys_eeprom, EEPROM_CONFIG_ADDRESS, (uint8_t*)&sys_calib, sizeof(SensorCalibration_t));
 
-	// 3. Verifikasi Integritas Data
+	// 3. Kalkulasi ekspektasi CRC dari data yang baru saja dibaca dari EEPROM
+	    uint32_t expected_crc = Calculate_CRC32(&sys_calib);
+
+	// 4. Verifikasi Integritas Data
     if (!i2c_success || sys_calib.crc32 != expected_crc) {
         // Jika gagal atau data sampah, aktifkan protokol FAIL-SAFE:
     	// FAIL-SAFE TRIGGERED: EEPROM pertama kali diinitialize, I2C Putus, atau Memory Corrupt!
-        Config_LoadDefault();
+		LogManager_Write(LOG_ERROR, "CRITICAL: EEPROM CRC tidak cocok atau I2C error. Memuat Default!");
 
+    	ConfigManager_LoadDefault();
         // Kita paksa tulis default ini ke EEPROM agar boot berikutnya sudah normal
-        Config_Save();
+    	ConfigManager_Save();
         return false;
     }
+    LogManager_Write(LOG_INFO, "Konfigurasi sistem berhasil dimuat dari EEPROM.");
     return true; // Berhasil dimuat secara utuh dari EEPROM
 }
 
-bool Config_Save(void) {
+bool ConfigManager_Save(void) {
     /*
      * MENGAPA (Why): Fungsi ini di-trigger dari Task Komunikasi (Command Task)
      * ketika ada perintah (misal JSON kalibrasi masuk dari Bluetooth/HP).
      * Akan langsung me-replace isi dari EEPROM AT24C32.
      */
-	return EEPROM_WriteBytes(&sys_eeprom, EEPROM_CONFIG_ADDRESS, (uint8_t*)&sys_calib, sizeof(SystemConfig_t));
+
+
+	// Perbarui CRC32 sebelum menuliskannya secara fisik ke chip memori
+	sys_calib.crc32 = Calculate_CRC32(&sys_calib);
+
+	bool result = EEPROM_WriteBytes(&sys_eeprom, EEPROM_CONFIG_ADDRESS, (uint8_t*)&sys_calib, sizeof(SensorCalibration_t));
+
+	if(result) {
+		LogManager_Write(LOG_INFO, "Konfigurasi baru berhasil disimpan ke EEPROM.");
+	} else {
+		LogManager_Write(LOG_ERROR, "Gagal menyimpan konfigurasi ke EEPROM.");
+	}
+
+	return result;
 }

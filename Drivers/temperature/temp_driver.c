@@ -6,7 +6,7 @@
  */
 
 #include "temperature/temp_driver.h"
-#include "config_data.h"   // Mengakses sys_calib untuk offset kalibrasi
+#include "../Apps/Config/config_data.h"   // Mengakses sys_calib untuk offset kalibrasi
 #include "delay.h"         // Modul delay mikrodetik (delay_us)
 #include "FreeRTOS.h"
 #include "task.h"

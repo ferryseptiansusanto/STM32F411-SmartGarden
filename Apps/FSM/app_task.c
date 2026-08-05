@@ -131,34 +131,34 @@ static void vTaskApp(void *pvParameters) {
          * ------------------------------------------------------------- */
         switch (currentState) {
 
-            case STATE_INIT_HARDWARE:
+            case STATE_INIT_HARDWARE: // State 1
                 Actuator_Init();
                 WtrLvl_Init();
                 currentState = STATE_LOAD_CALIBRATION;
                 break;
 
-            case STATE_LOAD_CALIBRATION:
+            case STATE_LOAD_CALIBRATION: // State 2
                 ConfigManager_Init();
                 currentState = STATE_LOAD_SCHEDULE;
                 break;
 
-            case STATE_LOAD_SCHEDULE:
+            case STATE_LOAD_SCHEDULE: // State 3
                 ScheduleManager_Init(); /* Memanggil init dari file Anda */
                 currentState = STATE_EVALUATE_MISSED_SCHEDULE;
                 break;
 
-            case STATE_SET_NEXT_ALARM:
+            case STATE_SET_NEXT_ALARM: // State 4
                 waiting_user_response = false;
                 /* NOTE: Setel alarm ke RTC di sini */
                 currentState = STATE_SLEEP;
                 break;
 
-            case STATE_SLEEP:
+            case STATE_SLEEP: // State 5
                 /* Low Power Mode menunggu interupsi RTC / Bluetooth */
                 break;
 
             /* --- EVALUASI JADWAL MENGGUNAKAN API BARU ANDA --- */
-            case STATE_EVALUATE_MISSED_SCHEDULE: {
+            case STATE_EVALUATE_MISSED_SCHEDULE: { // State 6
                 /* NOTE: Pastikan fungsi ini memanggil waktu Epoch aktual dari RTC hardware Anda */
                 uint32_t current_epoch = DS3231_GetEpochTime(&DS3231_Ctx);
                 uint32_t tolerance_sec = sys_config.max_delay_tolerance * 60;
@@ -205,7 +205,7 @@ static void vTaskApp(void *pvParameters) {
             }
 
             /* --- JALUR A: IRIGASI MURNI --- */
-            case STATE_IRRIGATING:
+            case STATE_IRRIGATING: // State 7
                 Actuator_SetState(ACT_VALVE_WATER_IN, ACT_ON);
                 Actuator_SetState(ACT_PUMP_OUT, ACT_ON);
                 FlowSensor_Start(&fm_inlet);
@@ -226,7 +226,7 @@ static void vTaskApp(void *pvParameters) {
                 break;
 
             /* --- JALUR B: FERTIGASI --- */
-            case STATE_PRE_FLUSHING:
+            case STATE_PRE_FLUSHING: // State 8
                 if (isWtrLvl_Empty()) {
                     FlowSensor_ResetVolume(&fm_fert);
                     currentState = STATE_DOSING;
@@ -236,7 +236,7 @@ static void vTaskApp(void *pvParameters) {
                 }
                 break;
 
-            case STATE_DOSING:
+            case STATE_DOSING: // State 9
                 /* Melewati array fert_volumes internal struct Anda yang bernilai 0 */
                 while (current_fert_index < RECIPE_NUM_FERTILIZERS && active_sched.recipe.fert_volumes[current_fert_index] == 0) {
                     current_fert_index++;
@@ -264,7 +264,7 @@ static void vTaskApp(void *pvParameters) {
                 }
                 break;
 
-            case STATE_MIXING:
+            case STATE_MIXING: // State 10
                 Actuator_SetState(ACT_MIXER, ACT_ON);
                 wq = WaterQuality_GetData();
 
@@ -283,7 +283,7 @@ static void vTaskApp(void *pvParameters) {
                 }
                 break;
 
-            case STATE_FLUSHING:
+            case STATE_FLUSHING: // State 11
                 Actuator_SetState(ACT_VALVE_TANK_OUT, ACT_ON);
                 Actuator_SetState(ACT_PUMP_OUT, ACT_ON);
                 FlowSensor_Start(&fm_outlet);
@@ -303,18 +303,32 @@ static void vTaskApp(void *pvParameters) {
                 break;
 
             /* --- FASE 4: USER INTERVENTION & FAIL-SAFE --- */
-            case STATE_BT_INTERACTIVE:
+            case STATE_BT_INTERACTIVE: // State 12
+            	/* Mode Standby khusus saat koneksi Bluetooth aktif.
+				 * Sistem diam di sini melayani ping/request dari Smartphone. */
                 break;
-            case STATE_SYNC_CONFIG:
-                ScheduleManager_Init();
-                currentState = STATE_EVALUATE_MISSED_SCHEDULE;
-                break;
-            case STATE_SENSOR_CALIBRATION:
-                currentState = STATE_EVALUATE_MISSED_SCHEDULE;
-                break;
-            case STATE_FAULT:
-                Actuator_Init();
-                break;
+
+            case STATE_SYNC_CONFIG_CALIB: // State 13 (GABUNGAN KALIBRASI & JADWAL)
+                            /* State ini dipanggil jika command_task menerima JSON jadwal baru,
+                             * atau command kalibrasi pH/EC baru dari HP.
+                             * * Aktivitas:
+                             * 1. EEPROM (Config) sudah ditulis oleh command_task/config_manager
+                             * 2. SD Card (Schedule) sudah ditimpa oleh command_task
+                             * 3. Di sini, FSM hanya bertugas me-reload ulang indeks ke dalam RAM!
+                             */
+                            ScheduleManager_Init(); /* Me-reload ulang pointer memori jadwal */
+                            ConfigManager_Init();   /* (Opsional) Memastikan RAM sinkron dengan EEPROM terbaru */
+
+                            LogManager_Write(LOG_INFO, "Sinkronisasi Konfigurasi/Kalibrasi Selesai.");
+
+                            /* Setelah sinkron, cek ulang apakah ada jadwal yang harus segera dieksekusi */
+                            currentState = STATE_EVALUATE_MISSED_SCHEDULE;
+                            break;
+            case STATE_FAULT: // State 14
+                            /* HARDWARE LOCKDOWN: Force LOW ke seluruh aktuator seketika */
+                            Actuator_Init();
+                            /* Berdiam di sini sampai menerima command RESET */
+                            break;
             default:
                 currentState = STATE_INIT_HARDWARE;
                 break;

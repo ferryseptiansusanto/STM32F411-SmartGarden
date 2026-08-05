@@ -24,7 +24,7 @@
 #define EEPROM_I2C_ADDR        0xAE     // Alamat fisik IC di bus I2C DS3231
 #define EEPROM_PAGE_SIZE       32       // Batas tulis per halaman (bytes)
 #define EEPROM_TOTAL_SIZE      4096     // Total kapasitas (bytes) -> 4KB
-#define EEPROM_CONFIG_ADDRESS  0x0000   // Alamat blok awal untuk menyimpan struct sys_calib
+#define EEPROM_CONFIG_ADDRESS  0x0000   // Alamat blok awal untuk menyimpan struct sys_config
 
 /* ==============================================================================
  * 2. KONFIGURASI RTC (Default: DS3231)

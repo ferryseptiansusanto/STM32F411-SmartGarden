@@ -29,7 +29,7 @@ extern QueueHandle_t appQueue;
 typedef enum {
     /* --- FASE 1: BOOTING & INITIALIZATION --- */
     STATE_INIT_HARDWARE = 0,         /**< Fail-Safe: Force LOW semua relay, inisialisasi DMA/Timer */
-    STATE_LOAD_CALIBRATION,          /**< Menarik sys_calib dari EEPROM via I2C */
+    STATE_LOAD_CALIBRATION,          /**< Menarik sys_config dari EEPROM via I2C */
     STATE_LOAD_SCHEDULE,             /**< Membaca jadwal_pupuk.txt / jadwal_air.txt dari SD Card */
 
     /* --- FASE 2: STANDBY & ROUTING (LOW POWER) --- */

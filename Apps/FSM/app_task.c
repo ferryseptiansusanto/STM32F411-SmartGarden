@@ -52,7 +52,7 @@ extern FlowSensor_t fm_inlet;
 extern FlowSensor_t fm_outlet;
 extern FlowSensor_t fm_fert;
 
-extern SensorCalibration_t sys_calib;
+extern SystemConfig_t sys_config;
 extern DS3231_Device_t DS3231_Ctx;
 
 /**
@@ -161,7 +161,7 @@ static void vTaskApp(void *pvParameters) {
             case STATE_EVALUATE_MISSED_SCHEDULE: {
                 /* NOTE: Pastikan fungsi ini memanggil waktu Epoch aktual dari RTC hardware Anda */
                 uint32_t current_epoch = DS3231_GetEpochTime(&DS3231_Ctx);
-                uint32_t tolerance_sec = sys_calib.max_delay_tolerance * 60;
+                uint32_t tolerance_sec = sys_config.max_delay_tolerance * 60;
 
                 if (!waiting_user_response) {
                     /* Memanggil API baru Anda. Cek Irigasi dulu, lalu Fertigasi */
@@ -193,7 +193,7 @@ static void vTaskApp(void *pvParameters) {
                 else {
                     /* TIMEOUT KONFIRMASI (Non-Blocking) */
                     uint32_t elapsed_sec = (xTaskGetTickCount() - response_start_tick) / configTICK_RATE_HZ;
-                    if (elapsed_sec >= sys_calib.waiting_user_response_time) {
+                    if (elapsed_sec >= sys_config.waiting_user_response_time) {
                         waiting_user_response = false;
                         LogManager_Write(LOG_ERROR, "TIMEOUT Operator. Jadwal URGENT dibatalkan.");
 
@@ -268,7 +268,7 @@ static void vTaskApp(void *pvParameters) {
                 Actuator_SetState(ACT_MIXER, ACT_ON);
                 wq = WaterQuality_GetData();
 
-                if (wq.ec_val > sys_calib.max_ec_limit && !isWtrLvl_Full()) {
+                if (wq.ec_val > sys_config.max_ec_limit && !isWtrLvl_Full()) {
                     Actuator_SetState(ACT_VALVE_TANK_IN, ACT_ON);
                 } else {
                     Actuator_SetState(ACT_VALVE_TANK_IN, ACT_OFF);

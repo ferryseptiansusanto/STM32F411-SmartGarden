@@ -16,32 +16,43 @@
 #include "board_config.h"    // <<-- BARU: Menarik parameter spesifikasi Hardware
 
 /* Definisi Variabel Global (Akan menempati RAM) */
-SensorCalibration_t sys_calib;
+SystemConfig_t sys_config;
 
 /* Deklarasikan Objek EEPROM untuk AT24C32 (Kapasitas 32Kb / 4KB, Page Size 32 Byte) */
 EEPROM_Device_t sys_eeprom;
 extern I2C_Context i2c1_ctx; // Diasumsikan instance I2C Layer 1 sudah dibuat di main/driver
-
+extern CRC_HandleTypeDef hcrc;
 /**
  * @brief Private function untuk menghitung CRC32.
  * MENGAPA: Melindungi sistem dari 'Data Tearing' jika mati listrik saat Save.
  */
-static uint32_t Calculate_CRC32(SensorCalibration_t *data) {
-    // Hitung panjang bit semua variabel, KECUALI variabel crc32 di baris terakhir
-    uint32_t size_to_calc = sizeof(SensorCalibration_t) - sizeof(uint32_t);
+static uint32_t Calculate_CRC32(SystemConfig_t *data) {
+	if (data == NULL) return 0;
 
-    // TODO: Ganti dengan Hardware CRC bawaan STM32 (HAL_CRC_Calculate)
-    // return HAL_CRC_Calculate(&hcrc, (uint32_t*)data, size_to_calc / 4);
+	/* 1. Hitung jumlah byte yang akan dikalkulasi.
+	 * MENGAPA: Kita HARUS mengecualikan field 'crc32' yang berada di paling
+	 * bawah struct, karena kita tidak bisa menghitung CRC dari CRC itu sendiri.
+	 */
+	uint32_t bytes_to_calc = sizeof(SystemConfig_t) - sizeof(uint32_t);
 
-    uint32_t dummy_crc = 0xABCD1234;
-    return dummy_crc;
+	/* 2. Hardware CRC STM32 membutuhkan panjang data dalam satuan WORD (32-bit).
+	 * Pastikan sizeof(SystemConfig_t) dikurangi sizeof(uint32_t) adalah kelipatan 4.
+	 */
+	uint32_t words_to_calc = bytes_to_calc / 4;
+
+	/* 3. Kalkulasi menggunakan Hardware CRC STM32.
+	 * HAL_CRC_Calculate menerima array of uint32_t. Kita casting pointer struct kita.
+	 */
+	uint32_t calculated_crc = HAL_CRC_Calculate(&hcrc, (uint32_t *)data, words_to_calc);
+
+	return calculated_crc;
 }
 
 void ConfigManager_LoadDefault(void) {
 	// Salin nilai baku (dari Flash/ROM) ke RAM
-	sys_calib = factory_default_calib;
+	sys_config = factory_default_calib;
 	// Kalkulasi CRC untuk data baku agar sistem mengenalinya sebagai data valid
-	sys_calib.crc32 = Calculate_CRC32(&sys_calib);
+	sys_config.crc32 = Calculate_CRC32(&sys_config);
 
 	LogManager_Write(LOG_INFO, "Memuat Factory Default Config ke RAM.");
 }
@@ -57,13 +68,13 @@ bool ConfigManager_Init(void) {
 	EEPROM_Init(&sys_eeprom, &i2c1_ctx, EEPROM_I2C_ADDR, EEPROM_PAGE_SIZE, EEPROM_TOTAL_SIZE);
 
 	// 2. Baca menggunakan API Wrapper asinkron
-	bool i2c_success = EEPROM_ReadBytes(&sys_eeprom, EEPROM_CONFIG_ADDRESS, (uint8_t*)&sys_calib, sizeof(SensorCalibration_t));
+	bool i2c_success = EEPROM_ReadBytes(&sys_eeprom, EEPROM_CONFIG_ADDRESS, (uint8_t*)&sys_config, sizeof(SystemConfig_t));
 
 	// 3. Kalkulasi ekspektasi CRC dari data yang baru saja dibaca dari EEPROM
-	    uint32_t expected_crc = Calculate_CRC32(&sys_calib);
+	    uint32_t expected_crc = Calculate_CRC32(&sys_config);
 
 	// 4. Verifikasi Integritas Data
-    if (!i2c_success || sys_calib.crc32 != expected_crc) {
+    if (!i2c_success || sys_config.crc32 != expected_crc) {
         // Jika gagal atau data sampah, aktifkan protokol FAIL-SAFE:
     	// FAIL-SAFE TRIGGERED: EEPROM pertama kali diinitialize, I2C Putus, atau Memory Corrupt!
 		LogManager_Write(LOG_ERROR, "CRITICAL: EEPROM CRC tidak cocok atau I2C error. Memuat Default!");
@@ -86,9 +97,9 @@ bool ConfigManager_Save(void) {
 
 
 	// Perbarui CRC32 sebelum menuliskannya secara fisik ke chip memori
-	sys_calib.crc32 = Calculate_CRC32(&sys_calib);
+	sys_config.crc32 = Calculate_CRC32(&sys_config);
 
-	bool result = EEPROM_WriteBytes(&sys_eeprom, EEPROM_CONFIG_ADDRESS, (uint8_t*)&sys_calib, sizeof(SensorCalibration_t));
+	bool result = EEPROM_WriteBytes(&sys_eeprom, EEPROM_CONFIG_ADDRESS, (uint8_t*)&sys_config, sizeof(SystemConfig_t));
 
 	if(result) {
 		LogManager_Write(LOG_INFO, "Konfigurasi baru berhasil disimpan ke EEPROM.");

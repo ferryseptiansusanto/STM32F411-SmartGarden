@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "adc.h"
+#include "crc.h"
 #include "dma.h"
 #include "i2c.h"
 #include "spi.h"
@@ -110,6 +111,7 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM5_Init();
   MX_TIM9_Init();
+  MX_CRC_Init();
   /* USER CODE BEGIN 2 */
   DWT_Delay_Init();
   /* Inisialisasi Wrapper Hardware */

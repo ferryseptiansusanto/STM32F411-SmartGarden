@@ -6,7 +6,7 @@
  */
 
 #include "temperature/temp_driver.h"
-#include "../Apps/Config/config_data.h"   // Mengakses sys_calib untuk offset kalibrasi
+#include "../Apps/Config/config_data.h"   // Mengakses sys_config untuk offset kalibrasi
 #include "delay.h"         // Modul delay mikrodetik (delay_us)
 #include "FreeRTOS.h"
 #include "task.h"
@@ -152,7 +152,7 @@ bool TempSensor_ReadTemperature(void) {
     // Proteksi "Tearing" Data (Aturan 3). Jika Task lain membaca current_temperature
     // tepat saat variabel ini sedang di-update (tipe float 32-bit), nilainya bisa corrupt.
     taskENTER_CRITICAL();
-    current_temperature = calculated_temp + sys_calib.temp_offset;
+    current_temperature = calculated_temp + sys_config.temp_offset;
     taskEXIT_CRITICAL();
 
     return true;

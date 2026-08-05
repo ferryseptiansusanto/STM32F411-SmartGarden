@@ -6,7 +6,7 @@
  */
 
 #include "water_quality_driver.h"
-#include "../Apps/Config/config_data.h"    // Jembatan ke sys_calib (dari EEPROM)
+#include "../Apps/Config/config_data.h"    // Jembatan ke sys_config (dari EEPROM)
 #include "FreeRTOS.h"
 #include "task.h"
 
@@ -93,15 +93,15 @@ void WaterQuality_ProcessAnalog(void) {
             filtered_v_tds = (EMA_ALPHA * current_v_tds) + ((1.0f - EMA_ALPHA) * filtered_v_tds);
         }
 
-        // 3. Terapkan Kalibrasi Dinamis dari EEPROM (sys_calib)
-        float calc_ph  = (sys_calib.ph_slope * filtered_v_ph) + sys_calib.ph_offset;
+        // 3. Terapkan Kalibrasi Dinamis dari EEPROM (sys_config)
+        float calc_ph  = (sys_config.ph_slope * filtered_v_ph) + sys_config.ph_offset;
 
         // Rumus Polinomial TDS (Umum untuk sensor Gravity TDS)
         float raw_tds_val = (133.42f * filtered_v_tds * filtered_v_tds * filtered_v_tds)
                           - (255.86f * filtered_v_tds * filtered_v_tds)
                           + (857.39f * filtered_v_tds);
 
-        float calc_tds = raw_tds_val * sys_calib.tds_factor;
+        float calc_tds = raw_tds_val * sys_config.tds_factor;
         float calc_ec  = calc_tds * 0.5f;
 
         // 4. Update Struct Global dengan Proteksi Data Tearing

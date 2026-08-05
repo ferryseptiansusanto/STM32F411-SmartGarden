@@ -10,15 +10,16 @@
 #include <stdint.h>
 
 /**
- * @struct  SensorCalibration_t
+ * @struct  SystemConfig_t
  * @brief   Menyimpan semua parameter kalibrasi untuk sensor Smart Garden.
  */
+#pragma pack(push, 1) // Paksa compiler merapatkan memori (No Padding)
 typedef struct {
     /* --- Kalibrasi Kualitas Air & Temperatur --- */
 
     /** * @brief Offset pH pada tegangan 2.5V (Biasanya pH 7.0).
      */
-    float ph_offset;
+    float ph_offset; /* 4 byte */
 
     /** * @brief Slope pH (Kemiringan kurva mV per step pH).
      */
@@ -40,18 +41,21 @@ typedef struct {
     float temp_slope;
 
     /* --- Kalibrasi Flowmeter (Pulsa per Liter) --- */
-    uint16_t fm_inlet_pulse_per_liter;
+    uint16_t fm_inlet_pulse_per_liter; /* 2 byte */
 	uint16_t fm_outlet_pulse_per_liter;
 	uint16_t fm_fert_pulse_per_liter;
+	/* [MANUAL PADDING] Menambahkan 2 byte kosong agar bagian atas ini menjadi genap kelipatan 4.
+	     * 20 byte (float) + 6 byte (uint16) + 2 byte (dummy) = 28 byte (Kelipatan 4) */
+	uint16_t _reserved_padding;         /* 2 byte */
 
     /* --- Konfigurasi Operasional FSM (Aturan 10) --- */
-	uint32_t waiting_user_response_time; // ms
+	uint32_t waiting_user_response_time; // ms /* 4 byte */
 	uint32_t max_delay_tolerance;        // ms
 
 	/* =========================================================
 	 * TAMBAHAN BARU: BATAS KRITIS AGRONOMI (SETPOINT)
 	 * ========================================================= */
-	float    max_ec_limit;   /**< Batas atas Electroconductivity (mS/cm). Memicu pengenceran/alarm. */
+	float    max_ec_limit;   /**< Batas atas Electroconductivity (mS/cm). Memicu pengenceran/alarm. */ /* 4 byte */
 	float    min_ph_limit;   /**< Batas bawah pH (terlalu asam). */
 	float    max_ph_limit;   /**< Batas atas pH (terlalu basa). */
 	// Anda bisa menambahkan max_tds_limit atau max_temp_limit jika diperlukan FSM.
@@ -63,9 +67,10 @@ typedef struct {
 	 */
     uint32_t crc32;
 
-} SensorCalibration_t;
+} SystemConfig_t;
+#pragma pack(pop)/* Kembalikan sifat compiler ke normal */
 
 /* Global instance yang akan digunakan oleh seluruh FSM dan Driver */
-extern SensorCalibration_t sys_calib;
+extern SystemConfig_t sys_config;
 
 #endif /* APPS_CONFIG_DATA_H_ */

@@ -16,7 +16,7 @@
 
 #include "config_data.h"
 
-static const SensorCalibration_t factory_default_calib = {
+static const SystemConfig_t factory_default_calib = {
     // Kalibrasi Sensor
     .ph_offset = 7.0f,
     .ph_slope = -59.16f,             /* Ideal Nernst equation slope (mV/pH) di 25C */

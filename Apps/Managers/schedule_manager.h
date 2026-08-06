@@ -67,6 +67,14 @@ bool ScheduleManager_GetDueSchedule(SchedType_t type, ScheduleItem_t* out_item,
                                    uint32_t current_epoch_time, uint32_t max_delay_tolerance);
 
 /**
+ * @brief Memindai file jadwal untuk mencari waktu Epoch terdekat di masa depan.
+ * @param type Tipe jadwal (Irigasi atau Fertigasi)
+ * @param current_epoch Waktu saat ini sebagai acuan
+ * @return Waktu Epoch terdekat di masa depan, atau 0 jika tidak ada jadwal.
+ */
+uint32_t ScheduleManager_GetNextUpcomingEpoch(SchedType_t type, uint32_t current_epoch);
+
+/**
  * @brief   Memperbarui tag status jadwal di file SD Card secara aman (Atomic Temp-Swap).
  * @param   type Jenis file jadwal (Irrigation/Fertilizer).
  * @param   line_number Nomor baris yang akan diperbarui statusnya.

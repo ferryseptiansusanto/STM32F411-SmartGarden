@@ -188,6 +188,34 @@ bool ScheduleManager_GetDueSchedule(SchedType_t type, ScheduleItem_t* out_item,
     return due_found;
 }
 
+uint32_t ScheduleManager_GetNextUpcomingEpoch(SchedType_t type, uint32_t current_epoch) {
+    const char* filename = GetFileNameByType(type);
+    char line_buf[SCHED_CFG_MAX_LINE_LEN];
+    uint32_t closest_epoch = 0xFFFFFFFF; // Set ke nilai maksimum awal
+    bool found = false;
+
+    // Buka file SD Card
+    if (FATFS_Open(&sched_file_ctx, filename, FA_READ)) { // Atau == FS_OK tergantung implementasi Wrapper Anda
+        while (FATFS_ReadLine(&sched_file_ctx, line_buf, sizeof(line_buf))) {
+            SchedStatus_t line_status = ParseStatusFromLine(line_buf);
+
+            // Kita hanya peduli pada jadwal yang berstatus PENDING
+            if (line_status == SCHED_STATUS_PENDING) {
+                uint32_t sched_epoch = Schedule_DateTimeToEpoch(line_buf);
+
+                // Cari epoch yang lebih besar dari sekarang, tapi paling kecil di antara yang lain
+                if (sched_epoch > current_epoch && sched_epoch < closest_epoch) {
+                    closest_epoch = sched_epoch;
+                    found = true;
+                }
+            }
+        }
+        FATFS_Close(&sched_file_ctx);
+    }
+
+    return found ? closest_epoch : 0;
+}
+
 bool ScheduleManager_UpdateStatus(SchedType_t type, uint32_t line_number, SchedStatus_t new_status) {
 	if (line_number == 0) return false;
 

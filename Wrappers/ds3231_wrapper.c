@@ -133,6 +133,49 @@ uint32_t DS3231_GetEpochTime(DS3231_Device_t *dev) {
     return epoch_seconds;
 }
 
+
+void DS3231_EpochToDateTime(uint32_t epoch, DS3231_DateTime_t *dt) {
+    if (dt == NULL) return;
+
+    uint32_t sec  = epoch % 60; epoch /= 60;
+    uint32_t min  = epoch % 60; epoch /= 60;
+    uint32_t hour = epoch % 24; epoch /= 24;
+
+    uint32_t days = epoch;
+    uint32_t year = 1970;
+
+    while (1) {
+        bool is_leap = (year % 4 == 0); // Aturan kabisat sederhana (valid untuk 1970-2099)
+        uint32_t days_in_year = is_leap ? 366 : 365;
+        if (days < days_in_year) break;
+        days -= days_in_year;
+        year++;
+    }
+
+    bool is_leap = (year % 4 == 0);
+    static const uint8_t days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    uint8_t month = 1;
+
+    for (uint8_t i = 0; i < 12; i++) {
+        uint8_t dim = days_in_month[i];
+        if (i == 1 && is_leap) dim = 29;
+        if (days < dim) {
+            month = i + 1;
+            break;
+        }
+        days -= dim;
+    }
+    uint8_t day = (uint8_t)days + 1;
+
+    dt->time.seconds = sec;
+    dt->time.minutes = min;
+    dt->time.hours   = hour;
+    dt->date.date    = day;
+    dt->date.month   = month;
+    dt->date.year    = year;
+    dt->date.day_of_week = 0; // Abaikan hari dalam seminggu untuk keperluan Alarm
+}
+
 /**
  * @brief Membaca Jam saja (Hours, Minutes, Seconds).
  */

@@ -82,6 +82,13 @@ bool DS3231_SetDateTime(DS3231_Device_t *dev, const DS3231_DateTime_t *dt);
  */
 uint32_t DS3231_GetEpochTime(DS3231_Device_t *dev);
 
+/**
+ * @brief Mengonversi Unix Epoch Time menjadi struktur DateTime DS3231.
+ * @param epoch Waktu dalam detik sejak 1 Jan 1970
+ * @param dt Pointer ke struktur hasil konversi
+ */
+void DS3231_EpochToDateTime(uint32_t epoch, DS3231_DateTime_t *dt);
+
 // --- API Time Saja ---
 bool DS3231_GetTime(DS3231_Device_t *dev, DS3231_Time_t *t);
 bool DS3231_SetTime(DS3231_Device_t *dev, const DS3231_Time_t *t);
